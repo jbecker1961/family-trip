@@ -153,3 +153,40 @@ img{max-width:100%}
 .welcome{max-width:560px;display:flex;flex-direction:column;gap:14px}
 .steps{margin:0;padding-left:1.2em;display:flex;flex-direction:column;gap:6px}
 code{font-size:.85em;background:var(--sunk);padding:1px 5px;border-radius:4px}
+
+/* person filter */
+.filterbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px}
+.filterbar .label{margin-right:4px}
+.chip-btn:not([style]){padding-left:10px}
+
+/* people on a plan */
+.person{--mc:var(--accent);display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:2px 4px 2px 3px;font-size:.82rem;font-weight:600;background:color-mix(in srgb,var(--mc) 12%,transparent);border:1px solid color-mix(in srgb,var(--mc) 40%,transparent)}
+.person .av{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:.7rem;font-weight:800;background:var(--mc);color:var(--surface)}
+.person .px{border:0;background:none;color:var(--muted);cursor:pointer;width:22px;height:22px;border-radius:50%;font-size:1rem;line-height:1;display:grid;place-items:center}
+.person .px:hover{background:var(--sunk);color:var(--bad)}
+.person .px:focus-visible{outline:2px solid var(--accent)}
+select.addwho{width:auto;padding:3px 8px;font-size:.82rem;border-radius:999px}
+.chip.todo{white-space:normal}
+.todo-form{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px}
+.whopick{border:0;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px 16px}
+.whopick legend{font-size:.8rem;font-weight:600;color:var(--muted);padding:0;margin-bottom:6px}
+
+/* hotel note */
+.hotel{display:inline-flex;align-items:center;gap:6px;font-size:.84rem;font-weight:600;color:var(--muted)}
+.hotel svg{flex:none;color:var(--accent)}
+.dayfields{display:flex;gap:10px;flex-wrap:wrap}
+.dayfields .field{width:210px;max-width:100%}
+
+/* whole trip */
+.week{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
+.wday{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.wday.today{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.wday-head{background:none;border:0;padding:0;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:2px;color:inherit;font:inherit}
+.wday-head b{font-family:var(--f-display);font-size:1.15rem}
+.wday-head:hover b{color:var(--accent)}
+.wday-head:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.wlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:10px}
+.wlist li{display:grid;grid-template-columns:70px minmax(0,1fr);gap:8px;font-size:.9rem}
+.wt{white-space:nowrap;color:var(--accent);font-weight:700;font-variant-numeric:tabular-nums;font-size:.85rem;padding-top:1px}
+.wtitle{display:block;font-weight:600;overflow-wrap:anywhere}
+.wwho{display:block;font-size:.8rem;color:var(--muted)}
