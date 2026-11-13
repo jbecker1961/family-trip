@@ -1,0 +1,27 @@
+rules_version = '2';
+
+// Each trip lives under trips/<key>. The key is a long random string that only appears in the
+// trip's link, and each trip has its own sign-in account, <key>@trips.example.com, whose
+// password is the trip password. Only a device signed in to that account can read or write
+// the trip, so someone who has the link but not the password sees nothing.
+// Nobody can list the trips collection.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedInTo(trip) {
+      return request.auth != null
+        && request.auth.token.email == trip + '@trips.example.com';
+    }
+    function validColl(coll) {
+      return coll in ['meta', 'plans', 'wishes', 'tasks', 'packing', 'budget'];
+    }
+    function smallDoc() {
+      return request.resource.data.size() <= 40;
+    }
+
+    match /trips/{trip}/{coll}/{doc} {
+      allow get, list: if signedInTo(trip) && validColl(coll);
+      allow create, update: if signedInTo(trip) && validColl(coll) && smallDoc();
+      allow delete: if signedInTo(trip) && validColl(coll);
+    }
+  }
+}
