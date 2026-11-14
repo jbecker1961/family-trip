@@ -2,12 +2,23 @@
 
 A shared, password-protected trip planner for the family. It's plain HTML, CSS and JavaScript with no build step, hosted on GitHub Pages, with trip data stored in Firebase (Firestore).
 
-- **Overview:** countdown, booking windows (dining, Lightning Lane, check-in) worked out from your dates, who's going with heights, trip at a glance, and sharing.
-- **Day by day:** a park for each day and a timed plan (rides, Lightning Lane, dining, breaks), with confirmation numbers and who's going.
-- **Must-dos:** everyone votes; known rides fill in park and height minimum, and anyone too short is flagged.
-- **To-dos & packing**, and a **Budget** with paid/unpaid totals by category.
+- **Home:** countdown, trip at a glance, next to-dos, booking windows (dining, Lightning Lane, check-in) worked out from your dates, who's going, and sharing.
+- **Trip:** every day at once, with its park, hotel and plans, plus **Add all to calendar**.
+- **Day:** a park and hotel for each day and a timed plan. Each plan lists only the people going (tap × to remove someone), can spawn a to-do with a due date and owner, and can be added to Apple or Google Calendar.
+- **Must-dos:** everyone votes; known rides fill in park and height minimum, and anyone too short is flagged. Heights are set here.
+- **Lists:** to-dos and packing.
+- A **person filter** (Everyone, or any mix of people) on Home, Trip and Day shows only the plans that include them.
 
-It installs to a phone's home screen and keeps working with a weak signal: changes made offline sync when the phone reconnects.
+It's built for phones first (bottom tab bar, large tap targets, two-tap delete), installs to the home screen, and keeps working with a weak signal: changes made offline sync when the phone reconnects.
+
+## Calendar
+
+Calendar export is a one-time copy, not a live link: GitHub Pages can't serve a private, always-updating calendar feed, and doing that with Firebase would need its paid plan.
+
+- **iPhone / Apple Calendar** downloads an `.ics` file; open it and tap **Add All**.
+- **Google Calendar** opens a pre-filled event in Google Calendar.
+- **Add all to calendar** on the Trip tab makes one `.ics` file with every plan shown (it follows the person filter).
+- Events use the park's time zone. Each event keeps the plan's ID, so adding a changed plan again updates the event instead of duplicating it in Apple Calendar and in Google Calendar imports.
 
 ## How access works
 

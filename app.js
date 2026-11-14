@@ -16,7 +16,6 @@ const today=()=>iso(new Date());
 const validDate=s=>/^\d{4}-\d{2}-\d{2}$/.test(s||'');
 const fmtD=(s,o={weekday:'short',month:'short',day:'numeric'})=>validDate(s)?pd(s).toLocaleDateString(undefined,o):'';
 const fmtT=t=>{if(!t)return'Any time';const[h,m]=t.split(':').map(Number);return`${((h+11)%12)+1}:${String(m).padStart(2,'0')} ${h<12?'AM':'PM'}`};
-const money=(n,c=0)=>(Number(n)||0).toLocaleString(undefined,{style:'currency',currency:'USD',minimumFractionDigits:c,maximumFractionDigits:c});
 const plural=(n,w)=>`${n} ${w}${n===1?'':'s'}`;
 
 // ---------- trip vocabulary ----------
@@ -30,7 +29,6 @@ const parkName=c=>{for(const r of Object.values(PARKS))for(const[k,n]of r)if(k==
 const parkChip=c=>c&&parkName(c)?`<span class="chip park" style="--pc:var(--p-${PCOLOR[c]||'rest'})">${esc(parkName(c))}</span>`:'';
 const parkOpts=(sel,blank='No park yet')=>`<option value="">${blank}</option>`+PARKS[resort()].map(([k,n])=>`<option value="${k}"${k===sel?' selected':''}>${esc(n)}</option>`).join('');
 const KINDS=['Ride','Lightning Lane','Dining','Show','Character meet','Break','Travel','Other'];
-const CATS=['Tickets','Hotel','Flights','Food','Lightning Lane','Souvenirs','Transport','Other'];
 const MCOL=['var(--p-mk)','var(--p-ds)','var(--p-ak)','var(--p-ep)','var(--p-hs)','var(--spark)','var(--p-wp)'];
 // Popular attractions with posted minimum heights in inches (0 = any height). Heights change; confirm in the park app.
 const SUGGEST={
@@ -43,8 +41,8 @@ const SUGGEST={
 };
 
 // ---------- state ----------
-const COLLS=['plans','wishes','tasks','packing','budget'];
-const S={trip:null,plans:[],wishes:[],tasks:[],packing:[],budget:[],mode:'loading',canWrite:true,stale:false};
+const COLLS=['plans','wishes','tasks','packing'];
+const S={trip:null,plans:[],wishes:[],tasks:[],packing:[],mode:'loading',stale:false};
 const resort=()=>S.trip?.resort==='dl'?'dl':'wdw';
 const party=()=>Array.isArray(S.trip?.party)?S.trip.party:[];
 const member=id=>party().find(p=>p.id===id);
@@ -93,7 +91,14 @@ let toastT;
 function toast(msg){const t=$('#toast');t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,3200)}
 
 // ---------- routing ----------
-const TABS=[['overview','Overview'],['week','Whole trip'],['days','Day by day'],['mustdo','Must-dos'],['lists','To-dos & packing'],['budget','Budget']];
+const ICON=d=>`<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="${d}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const TABS=[
+  ['overview','Home','M3 11l9-7 9 7v8.5a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H4.5A1.5 1.5 0 0 1 3 19.5z'],
+  ['week','Trip','M4 5h16v15H4zM4 10h16M8 3v4M16 3v4'],
+  ['days','Day','M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2'],
+  ['mustdo','Must-dos','M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z'],
+  ['lists','Lists','M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2']
+];
 const currentTab=()=>{const h=location.hash.slice(1);return TABS.some(t=>t[0]===h)?h:'overview'};
 window.addEventListener('hashchange',()=>{render();window.scrollTo({top:0})});
 let selDay=ls.get('trip-selday',null);
@@ -131,25 +136,24 @@ const calBox=d=>`<div class="cal"><div class="m">${esc(pd(d).toLocaleDateString(
 function renderHeader(){
   const t=['config','welcome','locked'].includes(S.mode)?null:S.trip;
   const pill=['config','welcome','locked'].includes(S.mode)?null
-    :!navigator.onLine?['offline','Offline · your changes will sync when you’re back online']
+    :!navigator.onLine?['offline','Offline · changes will sync later']
     :S.saving?['offline','Saving…']
-    :S.stale?['offline','Can’t reach the shared trip right now']
-    :S.mode==='shared'?['shared','Synced · shared with everyone who has the link and password']:['','Connecting…'];
+    :S.stale?['offline','Can’t reach the trip right now']
+    :S.mode==='shared'?['shared','Synced']:['','Connecting…'];
   let count='';
   if(t&&validDate(t.start)){
     const n=diff(today(),t.start), len=tripDays().length, k=diff(t.start,today())+1;
-    if(n>0)count=`<div class="count"><b>${n}</b><span>${n===1?'day':'days'} to go</span></div>`;
+    if(n>0)count=`<div class="count"><b>${n}</b><span>${n===1?'day':'days'}<br>to go</span></div>`;
     else if(k<=len)count=`<div class="count"><b>Day ${k}</b><span>of ${len}</span></div>`;
     else count=`<div class="count"><b>Done</b><span>Welcome home</span></div>`;
   }
-  $('#head').innerHTML=`<div class="toprow"><div style="min-width:0">
-      <div class="label">${t?esc(RESORTS[resort()]):'Family trip planner'}</div>
-      <h1 class="trip-name">${t?esc(t.name||'Our Disney trip'):'Plan your Disney trip'}</h1>
-      <div class="trip-sub">${t&&validDate(t.start)?`${esc(fmtD(t.start,{month:'long',day:'numeric'}))} – ${esc(fmtD(t.end||t.start,{month:'long',day:'numeric',year:'numeric'}))}${t.hotel?` · ${esc(t.hotel)}`:''}${party().length?` · ${plural(party().length,'traveler')}`:''}`:'Dates, rides, dining, packing and budget in one place for the whole family.'}</div>
-      ${pill?`<div class="sync ${pill[0]}"><i></i>${pill[1]}</div>`:''}
+  const dates=t&&validDate(t.start)?`${fmtD(t.start,{month:'short',day:'numeric'})} – ${fmtD(t.end||t.start,{month:'short',day:'numeric',year:'numeric'})}`:'';
+  $('#head').innerHTML=`<div class="toprow"><div class="tt">
+      <h1 class="trip-name">${t?esc(t.name||'Our Disney trip'):'Family trip planner'}</h1>
+      <div class="trip-sub">${t?esc(dates)+(pill?` · <span class="sync ${pill[0]}"><i></i>${pill[1]}</span>`:''):'Rides, dining and packing for the whole family.'}</div>
     </div>${count}</div>`;
   const tab=currentTab();
-  $('#tabs').innerHTML=S.trip?TABS.map(([k,n])=>`<a href="#${k}"${k===tab?' aria-current="page"':''}>${n}</a>`).join(''):'';
+  $('#tabs').innerHTML=S.trip?TABS.map(([k,n,ic])=>`<a href="#${k}"${k===tab?' aria-current="page"':''}>${ICON(ic)}<span>${n}</span></a>`).join(''):'';
   $('nav.tabs').hidden=!S.trip||['config','welcome','locked'].includes(S.mode);
 }
 
@@ -183,60 +187,111 @@ function setupView(){
       <label class="field"><span>Arrive</span><input type="date" id="s-start" required></label>
       <label class="field"><span>Leave</span><input type="date" id="s-end" required></label>
       <label class="check wide"><input type="checkbox" id="s-onsite">Staying at a Disney-owned hotel (earlier booking windows)</label>
-      <label class="field wide"><span>Who’s going (one per line, optional height in inches after a comma)</span><textarea id="s-party" rows="4" placeholder="Mom&#10;Dad&#10;Ava, 48&#10;Leo, 39"></textarea></label>
-      <div class="wide" style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" type="submit">Start planning</button><button class="btn ghost" type="button" data-act="example">Try an example trip first</button></div>
+      <label class="field wide"><span>Who’s going (one name per line)</span><textarea id="s-party" rows="4" placeholder="Mom&#10;Dad&#10;Ava"></textarea></label>
+      <div class="wide" style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" type="submit">Start planning</button></div>
     </form></div>`;
 }
 
 function overviewView(){
   const t=S.trip, days=tripDays(), wins=windows();
   const openTasks=S.tasks.filter(x=>!x.done).sort((a,b)=>(a.due||'9')<(b.due||'9')?-1:1).slice(0,4);
-  return`${exampleBanner()}${filterBar()}<div class="grid">
+  return`${filterBar()}<div class="grid">
+    <section class="panel span2"><div class="panel-head"><h2>Trip at a glance</h2><a href="#week" class="link">Whole trip</a></div>
+      ${days.length?`<div class="glance">${days.map((d,i)=>{const n=dayPlans(d).filter(shown).length,pk=t.dayParks?.[d];return`<button class="gday" data-act="goday" data-day="${d}"><span class="label">Day ${i+1} · ${esc(fmtD(d,{weekday:'short'}))}</span><b class="num">${esc(fmtD(d,{month:'short',day:'numeric'}))}</b>${pk?parkChip(pk):'<span class="chip">No park yet</span>'}${hotelNote(d)}<span class="small muted">${n?plural(n,'plan'):'Nothing planned'}</span></button>`}).join('')}</div>`:'<div class="empty">Add your travel dates under Trip details.</div>'}
+    </section>
+    <section class="panel"><div class="panel-head"><h2>Up next</h2><a href="#lists" class="link">All to-dos</a></div>
+      <div class="list">${openTasks.map(taskRow).join('')||'<div class="empty">No open to-dos. Add bookings and errands on the Lists tab.</div>'}</div>
+    </section>
     <section class="panel"><div class="panel-head"><h2>Booking windows</h2><span class="fine">Based on your dates</span></div>
       <div class="list">${wins.map(w=>`<div class="win">${calBox(w.date)}<div class="body" style="display:flex;flex-direction:column;gap:4px;min-width:0"><div class="title" style="font-weight:600">${esc(w.title)}</div><div class="small muted">${esc(fmtD(w.date,{weekday:'long',month:'long',day:'numeric'}))}. ${esc(w.note)}</div><div>${winStatus(w.date)}</div></div></div>`).join('')}</div>
       <p class="fine">Disney changes these rules from time to time. Confirm in the Disney app before the day.</p>
     </section>
-    <section class="panel"><div class="panel-head"><h2>Who’s going</h2><span class="fine">Heights power the ride check</span></div>
-      <div class="list" style="gap:8px">${party().map(p=>`<div class="party-row"><span class="av" style="background:${mcol(p.id)}">${initial(p.name)}</span>
+    <section class="panel"><div class="panel-head"><h2>Who’s going</h2><span class="fine">Used for the person filter</span></div>
+      <div class="names">${party().map(p=>`<div class="name-row"><span class="av" style="background:${mcol(p.id)}">${initial(p.name)}</span>
         <input type="text" value="${esc(p.name)}" aria-label="Name" data-change="pname" data-id="${p.id}">
-        <input type="number" min="0" max="90" value="${esc(p.height??'')}" placeholder="Height in" aria-label="Height in inches" data-change="pheight" data-id="${p.id}">
-        <button class="x" title="Remove ${esc(p.name)}" aria-label="Remove ${esc(p.name)}" data-act="pdel" data-id="${p.id}">×</button></div>`).join('')||'<div class="empty">Add everyone who’s coming so you can mark who wants each ride.</div>'}</div>
-      <form class="form" data-form="padd" style="grid-template-columns:minmax(0,1fr) 92px auto">
-        <input type="text" id="p-name" data-keep placeholder="Name" aria-label="New traveler name" required>
-        <input type="number" id="p-height" data-keep min="0" max="90" placeholder="Height in" aria-label="Height in inches">
+        ${delBtn('pdel',p.id,'',p.name)}</div>`).join('')||'<div class="empty">Add everyone who’s coming.</div>'}</div>
+      <form class="form inline" data-form="padd">
+        <input type="text" id="p-name" data-keep placeholder="Add a name" aria-label="New traveler name" required>
         <button class="btn" type="submit">Add</button></form>
     </section>
-    <section class="panel span2"><div class="panel-head"><h2>Trip at a glance</h2><a href="#week" class="small" style="color:var(--accent);font-weight:600">See the whole trip</a></div>
-      ${days.length?`<div class="glance">${days.map((d,i)=>{const n=dayPlans(d).filter(shown).length,pk=t.dayParks?.[d];return`<button class="gday" data-act="goday" data-day="${d}"><span class="label">Day ${i+1} · ${esc(fmtD(d,{weekday:'short'}))}</span><b class="num">${esc(fmtD(d,{month:'short',day:'numeric'}))}</b>${pk?parkChip(pk):'<span class="chip">No park yet</span>'}${hotelNote(d)}<span class="small muted">${n?plural(n,'plan'):'Nothing planned'}</span></button>`}).join('')}</div>`:'<div class="empty">Add your travel dates under Trip details.</div>'}
-    </section>
-    <section class="panel"><div class="panel-head"><h2>Up next</h2><a href="#lists" class="small" style="color:var(--accent);font-weight:600">All to-dos</a></div>
-      <div class="list">${openTasks.map(taskRow).join('')||'<div class="empty">No open to-dos. Add bookings and errands on the To-dos tab.</div>'}</div>
-    </section>
-    <section class="panel"><details${t.name?'':' open'}><summary>Trip details</summary>
+    <section class="panel"><details id="trip-details"${openAttr('trip-details',!t.name)}><summary>Trip details</summary>
       <form class="form" data-form="tripedit" style="margin-top:14px">
-        <label class="field wide"><span>Trip name</span><input type="text" id="t-name" value="${esc(t.name)}"></label>
-        <label class="field"><span>Resort</span><select id="t-resort"><option value="wdw"${resort()==='wdw'?' selected':''}>Walt Disney World</option><option value="dl"${resort()==='dl'?' selected':''}>Disneyland Resort</option></select></label>
-        <label class="field"><span>Hotel</span><input type="text" id="t-hotel" value="${esc(t.hotel)}"></label>
-        <label class="field"><span>Arrive</span><input type="date" id="t-start" value="${esc(t.start)}"></label>
-        <label class="field"><span>Leave</span><input type="date" id="t-end" value="${esc(t.end)}"></label>
-        <label class="check wide"><input type="checkbox" id="t-onsite"${t.onsite?' checked':''}>Staying at a Disney-owned hotel</label>
+        <label class="field wide"><span>Trip name</span><input type="text" id="t-name" data-keep value="${esc(t.name)}"></label>
+        <label class="field"><span>Resort</span><select id="t-resort" data-keep><option value="wdw"${resort()==='wdw'?' selected':''}>Walt Disney World</option><option value="dl"${resort()==='dl'?' selected':''}>Disneyland Resort</option></select></label>
+        <label class="field"><span>Hotel</span><input type="text" id="t-hotel" data-keep value="${esc(t.hotel)}"></label>
+        <label class="field"><span>Arrive</span><input type="date" id="t-start" data-keep value="${esc(t.start)}"></label>
+        <label class="field"><span>Leave</span><input type="date" id="t-end" data-keep value="${esc(t.end)}"></label>
+        <label class="check wide"><input type="checkbox" id="t-onsite" data-keep${t.onsite?' checked':''}>Staying at a Disney-owned hotel</label>
         <div class="wide"><button class="btn" type="submit">Save details</button></div>
       </form></details></section>
-    <section class="panel span2"><div class="panel-head"><h2>Share this trip</h2><span class="fine">Link plus password</span></div>
-      <p class="small muted" style="margin:0">Send the link to your family. Give them the password a different way, like saying it out loud, so the link alone is useless to anyone else. Only the trip organizer can change the password, in the Firebase console.</p>
+    <section class="panel"><div class="panel-head"><h2>Share this trip</h2><span class="fine">Link plus password</span></div>
+      <p class="small muted" style="margin:0">Send the link to your family and give them the password a different way, like saying it out loud. Only the trip organizer can change the password, in the Firebase console.</p>
       <div class="sharebox"><input type="text" id="share-url" readonly value="${esc(shareUrl())}" aria-label="Trip link"><button class="btn small" data-act="copylink">Copy link</button>${navigator.share?'<button class="btn ghost small" data-act="sharelink">Share…</button>':''}</div>
       <div><button class="btn ghost small" data-act="signout">Sign out of this trip on this device</button></div>
     </section>
   </div>`;
 }
 
-function exampleBanner(){
-  return S.trip?.example?`<div class="banner"><span>You’re looking at an example trip. Clear it when you’re ready to plan your own.</span><button class="btn small" data-act="clearex">Clear example and start mine</button></div>`:'';
-}
-
 function whoChips(ids,act,itemId){
   return party().map(p=>`<button type="button" class="chip-btn" style="--mc:${mcol(p.id)}" aria-pressed="${ids.includes(p.id)}" data-act="${act}" data-id="${itemId}" data-who="${p.id}"><span class="av">${initial(p.name)}</span>${esc(p.name)}</button>`).join('');
 }
+
+// ---------- small UI helpers ----------
+// Live updates re-render the page, so remember which <details> boxes the person opened or closed.
+const openBoxes=new Set(), closedBoxes=new Set();
+const openAttr=(id,dflt)=>openBoxes.has(id)||(dflt&&!closedBoxes.has(id))?' open':'';
+document.addEventListener('toggle',e=>{const d=e.target;if(!(d instanceof HTMLDetailsElement)||!d.id)return;if(d.open){openBoxes.add(d.id);closedBoxes.delete(d.id)}else{openBoxes.delete(d.id);closedBoxes.add(d.id)}},true);
+// Deleting takes two taps (× then "Delete?") so a stray tap on a phone can't remove anything.
+const delBtn=(a,id,coll,name)=>`<button class="x" type="button" aria-label="${a==='pdel'?'Remove':'Delete'} ${esc(name)}" title="${a==='pdel'?'Remove':'Delete'}" data-act="${a}" data-id="${id}"${coll?` data-coll="${coll}"`:''}>×</button>`;
+let armed=null, armT=null;
+function confirmTap(b,key){
+  if(armed===key){armed=null;clearTimeout(armT);return true}
+  document.querySelectorAll('.x.armed').forEach(x=>{x.classList.remove('armed');x.textContent='×'});
+  armed=key;b.classList.add('armed');b.textContent=b.dataset.act==='pdel'?'Remove?':'Delete?';
+  clearTimeout(armT);armT=setTimeout(()=>{armed=null;b.classList.remove('armed');b.textContent='×'},3500);
+  return false;
+}
+
+// ---------- calendar export ----------
+// Times are park-local, so events carry the resort's time zone. Re-adding an event updates it (same UID).
+const TZ=()=>resort()==='dl'?'America/Los_Angeles':'America/New_York';
+const DUR={Dining:90,Show:45,Travel:120,Break:120,'Character meet':30,'Lightning Lane':30,Ride:30,Other:60};
+function evTimes(p){
+  if(!p.time)return{allDay:true,start:p.date.replace(/-/g,''),end:addDays(p.date,1).replace(/-/g,'')};
+  const[h,m]=p.time.split(':').map(Number), endMin=h*60+m+(DUR[p.kind]||60);
+  const stamp=(d,mins)=>`${d.replace(/-/g,'')}T${String(Math.floor(mins/60)).padStart(2,'0')}${String(mins%60).padStart(2,'0')}00`;
+  return{allDay:false,start:stamp(p.date,h*60+m),end:endMin>=1440?stamp(addDays(p.date,1),endMin-1440):stamp(p.date,endMin)};
+}
+const evDetails=p=>[p.notes,p.conf?`Confirmation: ${p.conf}`:'',`Who: ${whoLabel(p)}`,S.trip.name].filter(Boolean).join('\n');
+const evPlace=p=>parkName(S.trip.dayParks?.[p.date]||'');
+const icsEsc=v=>String(v).replace(/\\/g,'\\\\').replace(/\r?\n/g,'\\n').replace(/([,;])/g,'\\$1');
+function icsFor(plans){
+  const now=new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d+/,'');
+  const L=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Family Disney Trip//EN','CALSCALE:GREGORIAN','METHOD:PUBLISH'];
+  for(const p of plans){
+    const t=evTimes(p), place=evPlace(p);
+    L.push('BEGIN:VEVENT',`UID:${p.id}@family-trip`,`DTSTAMP:${now}`,
+      t.allDay?`DTSTART;VALUE=DATE:${t.start}`:`DTSTART;TZID=${TZ()}:${t.start}`,
+      t.allDay?`DTEND;VALUE=DATE:${t.end}`:`DTEND;TZID=${TZ()}:${t.end}`,
+      `SUMMARY:${icsEsc(p.title)}`,`DESCRIPTION:${icsEsc(evDetails(p))}`,...(place?[`LOCATION:${icsEsc(place)}`]:[]),'END:VEVENT');
+  }
+  L.push('END:VCALENDAR');return L.join('\r\n');
+}
+function saveIcs(plans,name){
+  if(!plans.length){toast('There are no plans to add.');return}
+  const url=URL.createObjectURL(new Blob([icsFor(plans)],{type:'text/calendar;charset=utf-8'}));
+  const a=document.createElement('a');a.href=url;a.download=`${name.replace(/[^\w\- ]+/g,'').trim()||'trip'}.ics`;
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  toast(plans.length>1?`Calendar file with ${plans.length} plans is ready. Open it to add them.`:'Calendar file is ready. Open it to add the plan.');
+}
+function gcalUrl(p){
+  const t=evTimes(p), q=new URLSearchParams({action:'TEMPLATE',text:p.title,dates:`${t.start}/${t.end}`,details:evDetails(p)});
+  if(!t.allDay)q.set('ctz',TZ());
+  const place=evPlace(p);if(place)q.set('location',place);
+  return'https://calendar.google.com/calendar/render?'+q.toString();
+}
+const calMenu=p=>`<details class="calmenu" id="cal-${p.id}"${openAttr('cal-'+p.id,false)}><summary class="btn ghost small">Add to calendar</summary>
+  <div class="calopts"><button type="button" class="btn ghost small" data-act="ics" data-id="${p.id}">iPhone / Apple Calendar</button><a class="btn ghost small" href="${esc(gcalUrl(p))}" target="_blank" rel="noopener">Google Calendar</a></div></details>`;
 
 // ---------- people on plans, the person filter, and hotels ----------
 // Who's on a plan, always in the family list's order. Plans saved before "who" existed include everyone.
@@ -253,7 +308,7 @@ function filterBar(){
   return`<div class="filterbar" role="group" aria-label="Show plans for"><span class="label">Show plans for</span>
     <button type="button" class="chip-btn" aria-pressed="${!f.length}" data-act="filt" data-who="">Everyone</button>
     ${party().map(p=>`<button type="button" class="chip-btn" style="--mc:${mcol(p.id)}" aria-pressed="${f.includes(p.id)}" data-act="filt" data-who="${p.id}"><span class="av">${initial(p.name)}</span>${esc(p.name)}</button>`).join('')}
-    ${f.length?`<span class="small muted">Only plans that include ${esc(listJoin(f.map(id=>member(id).name),'or'))}</span>`:''}</div>`;
+    </div>${f.length?`<div class="filternote small muted">Only plans that include ${esc(listJoin(f.map(id=>member(id).name),'or'))}</div>`:''}`;
 }
 const HOTEL_ICON='<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M3 19V7M3 15h18v4M21 15v-2.5A2.5 2.5 0 0 0 18.5 10H11v5M7 12.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const hotelFor=d=>String(S.trip.dayHotels?.[d]||S.trip.hotel||'').trim();
@@ -283,19 +338,20 @@ function todoForm(p){
 }
 function planRow(p){
   const todos=planTodos(p);
-  return`<div class="row"><div class="time">${esc(fmtT(p.time))}</div><div class="body">
+  return`<div class="row plan"><div class="time">${esc(fmtT(p.time))}</div><div class="body">
     <div class="title">${esc(p.title)}</div>
     <div class="meta"><span class="chip">${esc(p.kind||'Other')}</span>${p.conf?`<span>Confirmation <b class="num" style="color:var(--ink)">${esc(p.conf)}</b></span>`:''}${p.notes?`<span>${esc(p.notes)}</span>`:''}</div>
     ${peopleEditor(p)}
     ${todos?`<div class="chips">${todos}</div>`:''}
-    ${openTodo===p.id?todoForm(p):`<div><button class="btn ghost small" type="button" data-act="todoopen" data-id="${p.id}">Add a to-do for this</button></div>`}
-  </div><button class="x" aria-label="Delete ${esc(p.title)}" title="Delete" data-act="del" data-coll="plans" data-id="${p.id}">×</button></div>`;
+    ${openTodo===p.id?todoForm(p):`<div class="row-actions"><button class="btn ghost small" type="button" data-act="todoopen" data-id="${p.id}">Add to-do</button>${calMenu(p)}</div>`}
+  </div>${delBtn('del',p.id,'plans',p.title)}</div>`;
 }
 
 function weekView(){
   const days=tripDays();
   if(!days.length)return`<div class="panel"><p class="muted">Add your travel dates in Trip details on the Overview tab to see the whole trip.</p></div>`;
-  return`${exampleBanner()}${filterBar()}<div class="week">${days.map((d,i)=>{
+  const allShown=days.flatMap(d=>dayPlans(d).filter(shown));
+  return`${filterBar()}<div class="weekbar"><span class="small muted">${plural(allShown.length,'plan')}${activeFilt().length?' for the people selected':''}</span><button class="btn small" data-act="icsall"${allShown.length?'':' disabled'}>Add all to calendar</button></div><div class="week">${days.map((d,i)=>{
     const pk=S.trip.dayParks?.[d], all=dayPlans(d), ps=all.filter(shown);
     return`<section class="wday${d===today()?' today':''}">
       <button class="wday-head" data-act="goday" data-day="${d}" aria-label="Open ${esc(fmtD(d,{weekday:'long',month:'long',day:'numeric'}))}"><span class="label">Day ${i+1} · ${esc(fmtD(d,{weekday:'long'}))}</span><b>${esc(fmtD(d,{month:'long',day:'numeric'}))}</b></button>
@@ -311,13 +367,14 @@ function daysView(){
   if(!days.includes(selDay))selDay=days.includes(today())?today():days[0];
   const d=selDay, pk=S.trip.dayParks?.[d]||'', all=dayPlans(d), plans=all.filter(shown), hidden=all.length-plans.length;
   const lastDay=d===S.trip.end&&d!==S.trip.start;
-  return`${exampleBanner()}${filterBar()}<div class="strip" role="tablist" aria-label="Trip days">${days.map(x=>{const p=S.trip.dayParks?.[x];return`<button class="daybtn" aria-current="${x===d}" data-act="selday" data-day="${x}"><span class="dw">${esc(fmtD(x,{weekday:'short'}))}</span><span class="dn">${pd(x).getDate()}</span><span class="dot" style="${p?`background:var(--p-${PCOLOR[p]||'rest'})`:''}"></span></button>`}).join('')}</div>
+  return`${filterBar()}<div class="strip" role="tablist" aria-label="Trip days">${days.map(x=>{const p=S.trip.dayParks?.[x];return`<button class="daybtn" aria-current="${x===d}" data-act="selday" data-day="${x}"><span class="dw">${esc(fmtD(x,{weekday:'short'}))}</span><span class="dn">${pd(x).getDate()}</span><span class="dot" style="${p?`background:var(--p-${PCOLOR[p]||'rest'})`:''}"></span></button>`}).join('')}</div>
   <div class="grid" style="margin-top:16px">
     <section class="panel span2"><div class="panel-head"><div style="display:flex;flex-direction:column;gap:4px;min-width:0"><div class="label">Day ${days.indexOf(d)+1} of ${days.length}</div><h2>${esc(fmtD(d,{weekday:'long',month:'long',day:'numeric'}))}</h2>${hotelNote(d)}</div>
       <div class="dayfields"><label class="field"><span>Park</span><select data-change="daypark" data-day="${d}">${parkOpts(pk)}</select></label>
       ${lastDay?'':`<label class="field"><span>Hotel tonight</span><input type="text" id="dh-${d}" data-keep value="${esc(S.trip.dayHotels?.[d]||'')}" placeholder="${esc(S.trip.hotel||'Where you’re staying')}" data-change="dayhotel" data-day="${d}"></label>`}</div></div>
       <div class="list">${plans.map(planRow).join('')||`<div class="empty">${hidden?'Nothing for the people selected on this day.':'Nothing planned for this day yet. Add rides, meals and breaks below, or schedule a must-do.'}</div>`}</div>
       ${hidden&&plans.length?`<div class="fine">${plural(hidden,'plan')} hidden by the person filter.</div>`:''}
+      <details class="addbox" id="add-plan"${openAttr('add-plan',!all.length)}><summary class="btn">+ Add a plan</summary>
       <form class="form" data-form="plan">
         <label class="field"><span>Time</span><input type="time" id="pl-time" data-keep></label>
         <label class="field" style="grid-column:span 2"><span>What</span><input type="text" id="pl-title" data-keep list="sugg" placeholder="Lunch at Sanaa" required></label>
@@ -326,7 +383,7 @@ function daysView(){
         <label class="field" style="grid-column:span 2"><span>Notes</span><input type="text" id="pl-notes" data-keep placeholder="Mobile order, meeting spot, stroller parking…"></label>
         ${party().length?`<fieldset class="wide whopick"><legend>Who’s going</legend>${party().map(m=>`<label class="check"><input type="checkbox" id="pl-who-${m.id}" data-keep data-who-pick="${m.id}" checked>${esc(m.name)}</label>`).join('')}</fieldset>`:''}
         <div><button class="btn" type="submit">Add to day</button></div>
-      </form>
+      </form></details>
       ${suggList()}
     </section></div>`;
 }
@@ -344,8 +401,11 @@ function mustdoView(){
   const days=tripDays();
   const list=[...S.wishes].sort((a,b)=>(b.votes?.length||0)-(a.votes?.length||0)||String(a.title).localeCompare(b.title));
   const scheduled=t=>S.plans.filter(p=>String(p.title).toLowerCase().includes(String(t).toLowerCase()));
-  return`${exampleBanner()}<div class="grid"><section class="panel span2">
+  return`<div class="grid"><section class="panel span2">
     <div class="panel-head"><div><h2>Must-dos</h2><p class="small muted" style="margin:2px 0 0">Everyone taps their name on what they want most. The list sorts by votes and checks heights.</p></div></div>
+    ${party().length?`<details id="heights"${openAttr('heights',false)}><summary>Heights for the ride check</summary>
+      <div class="names" style="margin-top:12px">${party().map(p=>`<label class="name-row"><span class="av" style="background:${mcol(p.id)}">${initial(p.name)}</span><span class="nm">${esc(p.name)}</span>
+        <input type="number" inputmode="numeric" min="0" max="90" value="${esc(p.height??'')}" placeholder="inches" aria-label="${esc(p.name)}’s height in inches" data-change="pheight" data-id="${p.id}"></label>`).join('')}</div></details>`:''}
     <form class="form" data-form="wish">
       <label class="field" style="grid-column:span 2"><span>Ride, show or meal</span><input type="text" id="w-title" data-keep list="sugg" placeholder="Start typing a ride name" required></label>
       <label class="field"><span>Park</span><select id="w-park" data-keep>${parkOpts('','Any park')}</select></label>
@@ -357,7 +417,7 @@ function mustdoView(){
         <div class="meta">${parkChip(w.park)}${Number(w.minHeight)?`<span class="chip num">${esc(w.minHeight)}″ minimum</span>`:''}${heightIssue(w)}${sch.length?`<span class="chip good">Planned ${esc(sch.map(p=>fmtD(p.date,{weekday:'short'})).join(', '))}</span>`:''}<span class="num">${plural(w.votes?.length||0,'vote')}</span></div>
         ${party().length?`<div class="chips">${whoChips(w.votes||[],'vote',w.id)}</div>`:''}
         ${days.length?`<div style="max-width:240px"><select aria-label="Schedule ${esc(w.title)} on a day" data-change="schedule" data-id="${w.id}"><option value="">Add to a day…</option>${days.map((d,i)=>`<option value="${d}">Day ${i+1} · ${esc(fmtD(d))}${S.trip.dayParks?.[d]?' · '+esc(parkName(S.trip.dayParks[d])):''}</option>`).join('')}</select></div>`:''}
-      </div><button class="x" aria-label="Delete ${esc(w.title)}" title="Delete" data-act="del" data-coll="wishes" data-id="${w.id}">×</button></div>`}).join('')||'<div class="empty">No must-dos yet. Add the rides and characters each person cares about most.</div>'}</div>
+      </div>${delBtn('del',w.id,'wishes',w.title)}</div>`}).join('')||'<div class="empty">No must-dos yet. Add the rides and characters each person cares about most.</div>'}</div>
   </section></div>`;
 }
 
@@ -365,14 +425,14 @@ function taskRow(x){
   const m=member(x.owner), late=x.due&&!x.done&&x.due<today(), pl=x.planId&&S.plans.find(p=>p.id===x.planId);
   return`<div class="row${x.done?' done':''}"><label class="check" style="padding-top:2px"><input type="checkbox" ${x.done?'checked':''} data-change="toggle" data-coll="tasks" data-id="${x.id}" aria-label="Done: ${esc(x.text)}"></label>
     <div class="body"><div class="title">${esc(x.text)}</div><div class="meta">${x.due?`<span class="${late?'chip bad':'chip'}">${late?'Overdue · ':'Due '}${esc(fmtD(x.due))}</span>`:''}${m?`<span>${esc(m.name)}</span>`:''}${pl?`<span>For ${esc(pl.title)} · ${esc(fmtD(pl.date))}</span>`:''}</div></div>
-    <button class="x" aria-label="Delete ${esc(x.text)}" title="Delete" data-act="del" data-coll="tasks" data-id="${x.id}">×</button></div>`;
+    ${delBtn('del',x.id,'tasks',x.text)}</div>`;
 }
 const whoOpts=(blank)=>`<option value="">${blank}</option>`+party().map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
 function listsView(){
   const tasks=[...S.tasks].sort((a,b)=>(a.done-b.done)||((a.due||'9')<(b.due||'9')?-1:1));
   const groups=[{id:'',name:'Everyone'},...party()].map(g=>({...g,items:S.packing.filter(x=>(x.who||'')===g.id||(!g.id&&x.who&&!member(x.who)))})).filter(g=>g.items.length);
   const packed=S.packing.filter(x=>x.done).length;
-  return`${exampleBanner()}<div class="grid">
+  return`<div class="grid">
     <section class="panel"><div class="panel-head"><h2>To-dos</h2><span class="progress num">${S.tasks.filter(x=>x.done).length} of ${S.tasks.length} done</span></div>
       <form class="form" data-form="task">
         <label class="field wide"><span>To-do</span><input type="text" id="t-text" data-keep placeholder="Book dining for Day 2" required></label>
@@ -387,37 +447,11 @@ function listsView(){
         <label class="field wide"><span>Item</span><input type="text" id="k-text" data-keep placeholder="Ponchos, autograph book, chargers…" required></label>
         <label class="field"><span>For</span><select id="k-who" data-keep>${whoOpts('Everyone')}</select></label>
         <div><button class="btn" type="submit">Add</button></div></form>
-      ${groups.map(g=>`<div style="display:flex;flex-direction:column;gap:8px"><div class="label">${esc(g.name)}</div><div class="list">${g.items.map(x=>`<div class="row${x.done?' done':''}"><label class="check"><input type="checkbox" ${x.done?'checked':''} data-change="toggle" data-coll="packing" data-id="${x.id}" aria-label="Packed: ${esc(x.text)}"></label><div class="body"><div class="title">${esc(x.text)}</div></div><button class="x" aria-label="Delete ${esc(x.text)}" title="Delete" data-act="del" data-coll="packing" data-id="${x.id}">×</button></div>`).join('')}</div></div>`).join('')||'<div class="empty">Nothing on the list yet. Add shared items for everyone, or give each person their own.</div>'}
+      ${groups.map(g=>`<div style="display:flex;flex-direction:column;gap:8px"><div class="label">${esc(g.name)}</div><div class="list">${g.items.map(x=>`<div class="row${x.done?' done':''}"><label class="check"><input type="checkbox" ${x.done?'checked':''} data-change="toggle" data-coll="packing" data-id="${x.id}" aria-label="Packed: ${esc(x.text)}"></label><div class="body"><div class="title">${esc(x.text)}</div></div>${delBtn('del',x.id,'packing',x.text)}</div>`).join('')}</div></div>`).join('')||'<div class="empty">Nothing on the list yet. Add shared items for everyone, or give each person their own.</div>'}
     </section></div>`;
 }
 
-function budgetView(){
-  const items=[...S.budget].sort((a,b)=>CATS.indexOf(a.category)-CATS.indexOf(b.category));
-  const total=items.reduce((s,x)=>s+(Number(x.amount)||0),0), paid=items.filter(x=>x.paid).reduce((s,x)=>s+(Number(x.amount)||0),0);
-  const target=Number(S.trip.budget)||0;
-  const byCat=CATS.map(c=>[c,items.filter(x=>x.category===c).reduce((s,x)=>s+(Number(x.amount)||0),0)]).filter(x=>x[1]>0);
-  const max=Math.max(...byCat.map(x=>x[1]),1);
-  const scale=Math.max(target,total,1);
-  return`${exampleBanner()}<div class="grid">
-    <section class="panel span2"><div class="panel-head"><h2>Budget</h2>
-      <label class="field" style="width:180px"><span>Trip budget</span><input type="number" min="0" step="50" value="${target||''}" placeholder="Set a target" data-change="target"></label></div>
-      <div class="totals"><div><span class="label">Planned</span><b>${money(total)}</b></div><div><span class="label">Paid</span><b style="color:var(--good)">${money(paid)}</b></div><div><span class="label">${target?'Left in budget':'Still to pay'}</span><b style="color:${target&&total>target?'var(--bad)':'var(--ink)'}">${money(target?target-total:total-paid)}</b></div></div>
-      <div class="meter" role="img" aria-label="${money(paid)} paid of ${money(total)} planned${target?`, budget ${money(target)}`:''}"><i style="width:${paid/scale*100}%;background:var(--good)"></i><i style="width:${(total-paid)/scale*100}%;background:var(--accent)"></i></div>
-      <div class="fine">Green is paid, blue is planned but unpaid${target?', and the full bar is your budget':''}.</div>
-    </section>
-    <section class="panel"><h2>By category</h2><div class="bars">${byCat.map(([c,v])=>`<div class="bar"><span>${esc(c)}</span><span class="track"><i style="width:${v/max*100}%"></i></span><span class="amt">${money(v)}</span></div>`).join('')||'<div class="empty">Add costs to see where the money goes.</div>'}</div></section>
-    <section class="panel"><h2>Costs</h2>
-      <form class="form" data-form="cost">
-        <label class="field wide"><span>What</span><input type="text" id="c-label" data-keep placeholder="4-day park tickets" required></label>
-        <label class="field"><span>Category</span><select id="c-cat" data-keep>${CATS.map(c=>`<option>${c}</option>`).join('')}</select></label>
-        <label class="field"><span>Amount ($)</span><input type="number" id="c-amt" data-keep min="0" step="0.01" required></label>
-        <label class="check"><input type="checkbox" id="c-paid" data-keep>Paid</label>
-        <div><button class="btn" type="submit">Add</button></div></form>
-      <div class="list">${items.map(x=>`<div class="row"><label class="check" style="padding-top:2px"><input type="checkbox" ${x.paid?'checked':''} data-change="paid" data-id="${x.id}" aria-label="Paid: ${esc(x.label)}"></label><div class="body"><div class="title">${esc(x.label)}</div><div class="meta"><span class="chip">${esc(x.category)}</span>${x.paid?'<span class="chip good">Paid</span>':''}</div></div><b class="num">${money(x.amount,Number(x.amount)%1?2:0)}</b><button class="x" aria-label="Delete ${esc(x.label)}" title="Delete" data-act="del" data-coll="budget" data-id="${x.id}">×</button></div>`).join('')||'<div class="empty">No costs yet.</div>'}</div>
-    </section></div>`;
-}
-
-const VIEWS={overview:overviewView,week:weekView,days:daysView,mustdo:mustdoView,lists:listsView,budget:budgetView};
+const VIEWS={overview:overviewView,week:weekView,days:daysView,mustdo:mustdoView,lists:listsView};
 
 // ---------- render with form preservation ----------
 function render(){
@@ -429,7 +463,6 @@ function render(){
   view.innerHTML=S.trip&&!gate?VIEWS[currentTab()]():setupView();
   for(const id in keep){const el=document.getElementById(id);if(el)el.type==='checkbox'?el.checked=keep[id]:el.value=keep[id]}
   if(focusId){const el=document.getElementById(focusId);if(el){el.focus();try{sel&&el.setSelectionRange(...sel)}catch{}}}
-  if(!S.canWrite)view.querySelectorAll('input,select,textarea,button:not([data-act="selday"]):not([data-act="goday"])').forEach(el=>el.disabled=true);
 }
 
 // ---------- actions ----------
@@ -445,7 +478,7 @@ document.addEventListener('submit',e=>{
     if(!validDate(start)){toast('Pick your arrival date.');return}
     if(end<start){toast('The leave date is before the arrival date.');return}
     const ppl=val('s-party').split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const[n,h]=l.split(',');return{id:uid(),name:n.trim().slice(0,40),height:Number(h)||null}});
-    act(store.setTrip({name:val('s-name')||'Our Disney trip',resort:val('s-resort')||'wdw',hotel:val('s-hotel'),start,end,onsite:document.getElementById('s-onsite').checked,party:ppl,dayParks:{},budget:0}),'Trip created');
+    act(store.setTrip({name:val('s-name')||'Our Disney trip',resort:val('s-resort')||'wdw',hotel:val('s-hotel'),start,end,onsite:document.getElementById('s-onsite').checked,party:ppl,dayParks:{}}),'Trip created');
   }
   if(k==='tripedit'){
     const start=val('t-start'),end=val('t-end')||start;
@@ -453,8 +486,8 @@ document.addEventListener('submit',e=>{
     act(store.updateTrip({name:val('t-name')||'Our Disney trip',resort:val('t-resort'),hotel:val('t-hotel'),start,end,onsite:document.getElementById('t-onsite').checked}),'Trip details saved');
   }
   if(k==='padd'){
-    const name=val('p-name');if(!name)return;const h=Number(val('p-height'))||null;clear('p-name','p-height');
-    act(store.updateTrip({party:[...party(),{id:uid(),name:name.slice(0,40),height:h}]}));
+    const name=val('p-name');if(!name)return;clear('p-name');
+    act(store.updateTrip({party:[...party(),{id:uid(),name:name.slice(0,40),height:null}]}));
   }
   if(k==='plan'){
     const title=val('pl-title');if(!title)return;
@@ -478,11 +511,6 @@ document.addEventListener('submit',e=>{
   }
   if(k==='task'){const text=val('t-text');if(!text)return;const d={text,due:val('t-due'),owner:val('t-owner'),done:false};clear('t-text','t-due');act(store.add('tasks',d))}
   if(k==='pack'){const text=val('k-text');if(!text)return;const d={text,who:val('k-who'),done:false};clear('k-text');act(store.add('packing',d))}
-  if(k==='cost'){
-    const label=val('c-label'),amount=Number(val('c-amt'));if(!label||!(amount>=0))return;
-    const d={label,category:val('c-cat')||'Other',amount:Math.round(amount*100)/100,paid:document.getElementById('c-paid').checked};
-    clear('c-label','c-amt','c-paid');act(store.add('budget',d));
-  }
 });
 
 // fill park + height when a known attraction is picked
@@ -496,6 +524,7 @@ const toggleIn=(arr,v)=>arr.includes(v)?arr.filter(x=>x!==v):[...arr,v];
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b)return;
   const {act:a,id,coll,who,day}=b.dataset;
+  if((a==='del'||a==='pdel')&&!confirmTap(b,a+id))return;
   if(a==='selday'){selDay=day;ls.set('trip-selday',day);render()}
   if(a==='goday'){selDay=day;ls.set('trip-selday',day);location.hash='days'}
   if(a==='del'){const it=S[coll].find(x=>x.id===id);act(store.remove(coll,id),it?`Deleted “${it.title||it.text||it.label}”`:null)}
@@ -505,22 +534,19 @@ document.addEventListener('click',e=>{
   if(a==='unwho'){const p=S.plans.find(x=>x.id===id);if(p)act(store.update('plans',id,{who:planWho(p).filter(x=>x!==who)}))}
   if(a==='todoopen'){openTodo=id;render();document.getElementById('pt-due')?.focus()}
   if(a==='todoclose'){openTodo=null;render()}
-  if(a==='planwho'){const p=S.plans.find(x=>x.id===id);if(p){const cur=Array.isArray(p.who)?p.who:party().map(m=>m.id);act(store.update('plans',id,{who:toggleIn(cur,who)}))}}
+  if(a==='ics'){const p=S.plans.find(x=>x.id===id);if(p)saveIcs([p],p.title)}
+  if(a==='icsall'){saveIcs(tripDays().flatMap(d=>dayPlans(d).filter(shown)),S.trip.name||'Disney trip')}
   if(a==='copylink'){const u=shareUrl();navigator.clipboard?.writeText(u).then(()=>toast('Link copied. Send the password separately.'),()=>{$('#share-url').select();toast('Press copy to copy the selected link.')})}
   if(a==='sharelink'){navigator.share?.({title:S.trip?.name||'Our Disney trip',text:'Our Disney trip plan. I’ll send you the password separately.',url:shareUrl()}).catch(()=>{})}
   if(a==='signout'){signOut(auth).then(()=>location.reload())}
-  if(a==='example')loadExample();
-  if(a==='clearex')clearExample();
 });
 document.addEventListener('change',e=>{
   const el=e.target.closest('[data-change]');if(!el)return;
   const {change:c,id,coll,day}=el.dataset;
   if(c==='toggle')act(store.update(coll,id,{done:el.checked}));
-  if(c==='paid')act(store.update('budget',id,{paid:el.checked}));
   if(c==='daypark')act(store.updateTrip({dayParks:{[day]:el.value}}));
   if(c==='addwho'&&el.value){const p=S.plans.find(x=>x.id===id);if(p)act(store.update('plans',id,{who:[...planWho(p),el.value]}))}
   if(c==='dayhotel')act(store.updateTrip({dayHotels:{[day]:el.value.trim().slice(0,80)}}));
-  if(c==='target')act(store.updateTrip({budget:Math.max(0,Number(el.value)||0)}));
   if(c==='pname'){const n=el.value.trim().slice(0,40);if(n)act(store.updateTrip({party:party().map(p=>p.id===id?{...p,name:n}:p)}))}
   if(c==='pheight')act(store.updateTrip({party:party().map(p=>p.id===id?{...p,height:Number(el.value)||null}:p)}));
   if(c==='schedule'&&el.value){
@@ -528,44 +554,6 @@ document.addEventListener('change',e=>{
     const d=el.value;act(store.add('plans',{date:d,time:'',title:w.title,kind:'Ride',conf:'',notes:'',who:(w.votes&&w.votes.length)?w.votes:party().map(p=>p.id)}),`Added to ${fmtD(d)}`);
   }
 });
-
-// ---------- example trip ----------
-async function loadExample(){
-  const start=addDays(today(),75), ids=['ex-mom','ex-dad','ex-ava','ex-leo'];
-  const [m,d,a,l]=ids, D=i=>addDays(start,i), all=ids;
-  await act(store.setTrip({example:true,name:'Example: Spring break',resort:'wdw',hotel:'Disney’s Art of Animation Resort',start,end:D(4),onsite:true,budget:6500,
-    party:[{id:m,name:'Mom',height:65},{id:d,name:'Dad',height:71},{id:a,name:'Ava',height:50},{id:l,name:'Leo',height:39}],
-    dayParks:{[D(0)]:'travel',[D(1)]:'mk',[D(2)]:'hs',[D(3)]:'rest',[D(4)]:'ep'}}));
-  const ex={example:true}, adds=[
-    ['plans',{date:D(0),time:'14:00',title:'Land at MCO, ride to hotel',kind:'Travel',conf:'',notes:'Pool after check-in',who:all}],
-    ['plans',{date:D(1),time:'08:00',title:'Rope drop: Seven Dwarfs Mine Train',kind:'Ride',conf:'',notes:'Be at the gate by 7:30',who:all}],
-    ['plans',{date:D(1),time:'11:30',title:'Lunch at Be Our Guest',kind:'Dining',conf:'384729',notes:'',who:all}],
-    ['plans',{date:D(1),time:'14:00',title:'Hotel break and nap',kind:'Break',conf:'',notes:'',who:[m,l]}],
-    ['plans',{date:D(1),time:'21:00',title:'Happily Ever After fireworks',kind:'Show',conf:'',notes:'Watch from the hub lawn',who:all}],
-    ['plans',{date:D(2),time:'09:10',title:'Slinky Dog Dash',kind:'Lightning Lane',conf:'',notes:'',who:all}],
-    ['wishes',{title:'Seven Dwarfs Mine Train',park:'mk',minHeight:38,votes:[a,l,d]}],
-    ['wishes',{title:'Space Mountain',park:'mk',minHeight:44,votes:[a,d]}],
-    ['wishes',{title:'Slinky Dog Dash',park:'hs',minHeight:38,votes:[a,l,m,d]}],
-    ['wishes',{title:'Avatar Flight of Passage',park:'ak',minHeight:44,votes:[m]}],
-    ['wishes',{title:"Peter Pan's Flight",park:'mk',minHeight:0,votes:[l,m]}],
-    ['tasks',{text:'Buy 4-day park tickets',due:addDays(today(),10),owner:d,done:true}],
-    ['tasks',{text:'Book flights',due:addDays(today(),14),owner:d,done:false}],
-    ['tasks',{text:'Book Be Our Guest when dining opens',due:addDays(start,-60),owner:m,done:false}],
-    ['tasks',{text:'Order matching shirts',due:addDays(start,-21),owner:m,done:false}],
-    ['packing',{text:'Sunscreen',who:'',done:false}],['packing',{text:'Ponchos',who:'',done:true}],['packing',{text:'Portable chargers',who:'',done:false}],
-    ['packing',{text:'Autograph book and pen',who:a,done:false}],['packing',{text:'Stroller fan',who:l,done:false}],
-    ['budget',{label:'4-day park tickets',category:'Tickets',amount:2380,paid:true}],['budget',{label:'Hotel, 4 nights',category:'Hotel',amount:1460,paid:false}],
-    ['budget',{label:'Flights for 4',category:'Flights',amount:1320,paid:false}],['budget',{label:'Food',category:'Food',amount:900,paid:false}],
-    ['budget',{label:'Lightning Lane Multi Pass',category:'Lightning Lane',amount:440,paid:false}]
-  ];
-  for(const[c,dta]of adds)await act(store.add(c,{...dta,...ex}));
-  selDay=D(1);ls.set('trip-selday',selDay);
-}
-async function clearExample(){
-  for(const c of COLLS)for(const x of S[c].filter(x=>x.example))await act(store.remove(c,x.id));
-  await act(store.removeTrip(),'Example cleared');
-  location.hash='';
-}
 
 // ---------- sign-in & boot ----------
 let app=null, auth=null, db=null;

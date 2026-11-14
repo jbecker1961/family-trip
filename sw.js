@@ -1,6 +1,6 @@
 // Keeps the app itself available with a weak signal in the parks.
 // Trip data has its own offline copy (Firestore's local cache), so this only caches the page files.
-const CACHE = 'family-trip-v2';
+const CACHE = 'family-trip-v3';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'firebase-config.js', 'manifest.webmanifest', 'icon-192.png'];
 
 self.addEventListener('install', e => {
