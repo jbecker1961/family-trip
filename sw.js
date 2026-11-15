@@ -1,7 +1,7 @@
 // Keeps the app itself available with a weak signal in the parks.
 // The live planner shares this web address, so only this version's own old caches are cleared.
 // Trip data has its own offline copy (Firestore's local cache), so this only caches the page files.
-const CACHE = 'family-trip-v2-test-2';
+const CACHE = 'family-trip-v2-test-3';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'firebase-config.js', 'manifest.webmanifest', 'icon-192.png'];
 
 self.addEventListener('install', e => {

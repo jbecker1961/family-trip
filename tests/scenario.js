@@ -156,5 +156,19 @@ check('Disney calendar keeps Eastern time',has(icsFor([S.plans[0]]),'TZID=Americ
 // access lost while open
 S.mode='noaccess';S.trip=null;check('lost access shows notice',has(html(),'This trip isn’t available'));
 
+
+// ---------- copy from the old planner ----------
+appConfig.legacyConfig={projectId:'family-disney-trip'};S.mode='dash';S.trip=null;location.hash='';location.search='';
+check('import option on dashboard',has(html(),'Copy a trip from the old planner'));
+var K='xsq8s36jfcz3nckg47wxnjbww5jy';
+check('reads key from full link',legacyKey('https://jbecker1961.github.io/family-trip/?t='+K)===K);
+check('reads bare key',legacyKey('  '+K+' ')===K);
+check('rejects junk link',legacyKey('https://example.com/?x=1')===null);
+var it=importedTrip({name:'Becker Family 2027',resort:'wdw',hotel:'AKL',start:'2027-04-14',end:'2027-04-19',party:[{id:'a',name:'Jess'}],families:[{id:'fam1',name:'Becker Family'},{id:'fam2',name:'Logothetis Family'}],famParks:{fam1:{}},junk:'x'},K);
+check('import keeps trip fields',it.name==='Becker Family 2027'&&it.families.length===2&&it.party.length===1&&it.hotel==='AKL');
+check('import drops unknown fields and the old key',!('junk' in it)&&JSON.stringify(it).indexOf(K)<0);
+check('import: only me can open the copy',it.members.join()===ME.email&&it.owner===ME.email);
+check('import fits the rules size limit',Object.keys(it).length<=40);
+delete appConfig.legacyConfig;check('import hidden without old config',!has(html(),'Copy a trip from the old planner'));
 out('');out(fails.length?('FAILURES: '+fails.length):'ALL PASSED ('+__out.length+' checks)');
 __out.join('\n');

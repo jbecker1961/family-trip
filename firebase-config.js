@@ -16,5 +16,15 @@ export const appConfig = {
   adminName: 'Jason',
   adminPhone: '',          // optional: a number here adds a "Let Jason know" text-message button for pending accounts
   appCheckKey: '',         // optional: reCAPTCHA v3 site key once App Check is set up (README)
-  testBanner: true         // shows "Test version" at the top
+  testBanner: true,        // shows "Test version" at the top
+  // The live planner's project, used ONLY to read (never write) a trip for "Copy a trip from the old planner".
+  // Public web config, same as in the live site's firebase-config.js. Remove it to hide that option.
+  legacyConfig: {
+    apiKey: "AIzaSyBpevzuQWYsRfcRYmfSOw9GK_mQDsEYFm4",
+    authDomain: "family-disney-trip.firebaseapp.com",
+    projectId: "family-disney-trip",
+    storageBucket: "family-disney-trip.firebasestorage.app",
+    messagingSenderId: "549733207304",
+    appId: "1:549733207304:web:a6db7e6f42dc97f121f0bd"
+  }
 };

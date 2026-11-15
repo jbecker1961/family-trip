@@ -1,9 +1,9 @@
 import { firebaseConfig, appConfig } from './firebase-config.js';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail, updateProfile, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, query, where, limit, onSnapshot, getDoc, getDocsFromServer, setDoc, updateDoc, deleteDoc, addDoc, FieldPath, terminate, clearIndexedDbPersistence } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { getAuth, initializeAuth, inMemoryPersistence, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail, updateProfile, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, query, where, limit, onSnapshot, getDoc, getDocs, getDocsFromServer, getFirestore, writeBatch, setDoc, updateDoc, deleteDoc, addDoc, FieldPath, terminate, clearIndexedDbPersistence } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-const APP_VERSION='v2-test.2';   // shown at the bottom of Home so you can tell which version a phone has
+const APP_VERSION='v2-test.3';   // shown at the bottom of Home so you can tell which version a phone has
 
 // ---------- helpers ----------
 const $=(s,r=document)=>r.querySelector(s);
@@ -535,7 +535,7 @@ function dashboardView(){
     <section class="panel span2"><div class="panel-head"><h2>Trips</h2><span class="fine">Only trips you’re on</span></div>
       <div class="tripcards">${upcoming.map(tripCard).join('')||'<div class="empty">No upcoming trips yet.</div>'}</div>
       ${past.length?`<details id="pasttrips"${openAttr('pasttrips',false)}><summary class="small">Past trips (${past.length})</summary><div class="tripcards" style="margin-top:8px">${past.map(tripCard).join('')}</div></details>`:''}
-      ${newTripForm()}</section>
+      ${newTripForm()}${importForm()}</section>
     <section class="panel span2"><div class="panel-head"><h2>My families</h2><span class="fine">Saved groups for adding people to trips</span></div>
       <div class="famgrid">${D.fams.map(famGroupCard).join('')}</div>
       <details id="fgnew"${openAttr('fgnew',!D.fams.length)}><summary class="small">+ New family</summary>
@@ -573,6 +573,55 @@ async function createTrip(f){
   S.busy=true;render();
   try{await setDoc(ref,trip);location.href='?trip='+ref.id}
   catch(e){console.warn(e);S.busy=false;render();toast('Couldn’t create the trip. Try again.')}
+}
+// ---------- copy a trip from the old planner (link + trip password) ----------
+// Reads the old trip with its own password, read-only, and saves a copy here that only you can open.
+// The old trip is never changed. Add people afterwards under "Who can open this trip".
+const LEGACY_FIELDS=['name','resort','hotel','start','end','onsite','party','dayParks','dayHotels','families','famParks','famHotels'];
+function legacyKey(s){
+  const t=String(s||'').trim(), m=t.match(/[?&]t=([a-z0-9]{24,64})\b/);
+  const k=m?m[1]:t;return /^[a-z0-9]{24,64}$/.test(k)?k:null;
+}
+function importedTrip(meta,key){
+  const out={};
+  for(const k of LEGACY_FIELDS)if(meta&&meta[k]!==undefined)out[k]=meta[k];
+  out.name=String(out.name||'Imported trip').slice(0,60);
+  if(!['wdw','dl','none'].includes(out.resort))out.resort='wdw';
+  return{...out,members:[myEmail()],owner:myEmail(),created:new Date().toISOString()};
+}
+const importForm=()=>appConfig?.legacyConfig?`<details id="importtrip"${openAttr('importtrip',false)}><summary class="small">Copy a trip from the old planner</summary>
+  <form class="form" data-form="import" style="margin-top:8px">
+    <label class="field wide"><span>Old trip link</span><input type="url" id="im-link" data-keep placeholder="https://jbecker1961.github.io/family-trip/?t=…" required></label>
+    <label class="field wide"><span>That trip’s password</span><input type="password" id="im-pw" autocomplete="off" required></label>
+    <div class="wide">${busyBtn('Copy trip','Copying…')}</div>
+    <div class="wide fine">Makes a copy here that only you can open. The old trip isn’t changed. Then add people under “Who can open this trip”.</div>
+  </form></details>`:'';
+let legacy=null;
+async function importTrip(link,pw){
+  const key=legacyKey(link);
+  if(!key){toast('That doesn’t look like a trip link from the old planner.');return}
+  if(!navigator.onLine){toast('Connect to the internet to copy a trip.');return}
+  S.busy=true;render();
+  try{
+    if(!legacy){const la=initializeApp(appConfig.legacyConfig,'legacy');legacy={auth:initializeAuth(la,{persistence:inMemoryPersistence}),db:getFirestore(la)}}
+    await signInWithEmailAndPassword(legacy.auth,`${key}@trips.example.com`,pw);
+    const meta=await getDoc(doc(legacy.db,'trips',key,'meta','info'));
+    if(!meta.exists())throw{code:'empty'};
+    const lists={};for(const c of COLLS)lists[c]=(await getDocs(collection(legacy.db,'trips',key,c))).docs.map(d=>[d.id,d.data()]);
+    await signOut(legacy.auth);
+    // The trip has to exist before its plans can be saved (the rules check you're on it).
+    const ref=doc(collection(db,'trips'));
+    await setDoc(ref,importedTrip(meta.data(),key));
+    const all=COLLS.flatMap(c=>lists[c].map(([id,d])=>[c,id,d]));
+    for(let i=0;i<all.length;i+=400){const b=writeBatch(db);all.slice(i,i+400).forEach(([c,id,d])=>b.set(doc(db,'trips',ref.id,c,id),d));await b.commit()}
+    toast(`Copied ${plural(all.length,'item')}.`);location.href='?trip='+ref.id;
+  }catch(e){
+    console.warn(e);S.busy=false;
+    const c=e?.code||'';
+    toast(c==='empty'?'That trip has no details yet.':/credential|password|user-not-found/.test(c)?'That password isn’t right for that trip.':c==='auth/too-many-requests'?'Too many tries. Wait a few minutes.':'Couldn’t copy the trip. Try again.');
+    try{legacy&&await signOut(legacy.auth)}catch{}
+    render();
+  }
 }
 // ---------- approvals (admin only; the rules enforce it, this page just hides itself from others) ----------
 function adminView(){
@@ -864,6 +913,7 @@ document.addEventListener('submit',e=>{
   if(k==='signup'){signUp(val('a-name').slice(0,40),normEmail(val('a-email')),$('#a-pw').value);return}
   if(k==='reset'){resetPw(normEmail(val('a-email')));return}
   if(k==='newtrip'){createTrip(f);return}
+  if(k==='import'){const pw=$('#im-pw').value;importTrip(val('im-link'),pw);$('#im-pw').value='';return}
   if(k==='fgnew'){const name=val('fg-new').slice(0,60);if(!name)return;clear('fg-new');closedBoxes.add('fgnew');openBoxes.delete('fgnew');
     const people=[{id:uid(),name:myName(),email:myEmail()}];
     act(setDoc(doc(collection(db,'families')),{name,people,editors:fgEditors(people)}),`${name} created`);return}

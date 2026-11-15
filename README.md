@@ -51,6 +51,10 @@ Everyone has their own login: their own email and a password they choose. A trip
 - **Just me** in the people filter shows your own itinerary, including plans with others.
 - Signing out also clears the offline copy on that device.
 
+### Copy a trip from the old planner
+
+On the dashboard, **Copy a trip from the old planner** takes an old trip link and that trip's password, reads the trip read-only from the live project (`appConfig.legacyConfig`), and saves a copy that only you can open. The old trip is never changed. Afterwards, link people to their emails under **Who can open this trip** ("On the plan as").
+
 ### What the rules enforce (on Google's servers, not just in the app)
 
 - Only accounts with a confirmed email get anywhere. Unconfirmed sign-ups write nothing to the database.
@@ -80,7 +84,6 @@ The values in `firebase-config.js` identify the project and are safe to publish;
 
 ### Not done yet
 
-- Moving the live Disney trip into this version.
 - "Sign in with Google".
 - Testing the rules in Firebase's emulator (the app's screens and logic are tested headlessly).
 
