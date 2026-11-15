@@ -267,3 +267,15 @@ select.addwho{width:auto;min-height:36px;padding:4px 10px;font-size:16px;border-
 .chip-btn.every{padding-left:14px;padding-right:14px}
 .filternote{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;font-size:.88rem}
 .linkbtn{background:none;border:0;padding:6px 0;color:var(--accent);font-weight:700;font-size:.88rem;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+
+/* family tile */
+.keyfacts{margin:2px 0 4px;display:grid;gap:6px}
+.keyfacts div{display:grid;grid-template-columns:64px minmax(0,1fr);gap:8px;align-items:baseline}
+.keyfacts dt{font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.keyfacts dd{margin:0;font-weight:700;font-size:1rem}
+.famcard .label{margin-top:6px}
+.famcard .flist li{gap:1px}
+.track{display:inline-flex;align-self:flex-start;align-items:center;gap:4px;margin-top:2px;font-size:.84rem;font-weight:700;color:var(--accent);text-decoration:none;padding:3px 10px;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
+.flightin{display:flex;align-items:center;gap:8px;font-size:.84rem;font-weight:600;color:var(--muted)}
+.flightin input{max-width:150px;min-height:38px;padding:6px 10px;text-transform:uppercase}
+#pl-flight,[id^="ff-num-"]{text-transform:uppercase}

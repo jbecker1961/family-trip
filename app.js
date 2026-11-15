@@ -3,7 +3,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, onSnapshot, setDoc, updateDoc, deleteDoc, addDoc, FieldPath } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-const APP_VERSION='2026.11.15-5';   // shown at the bottom of Home so you can tell which version a phone has
+const APP_VERSION='2026.11.15-6';   // shown at the bottom of Home so you can tell which version a phone has
 
 // ---------- helpers ----------
 const $=(s,r=document)=>r.querySelector(s);
@@ -367,7 +367,8 @@ function planRow(p){
   const todos=planTodos(p);
   return`<div class="row plan"><div class="time">${esc(fmtT(p.time))}</div><div class="body">
     <div class="title">${esc(p.title)}</div>
-    <div class="meta"><span class="chip">${esc(p.kind||'Other')}</span>${sharedChip(p)}${p.conf?`<span>Confirmation <b class="num" style="color:var(--ink)">${esc(p.conf)}</b></span>`:''}${p.notes?`<span>${esc(p.notes)}</span>`:''}</div>
+    <div class="meta"><span class="chip">${esc(p.kind||'Other')}</span>${sharedChip(p)}${p.flight?trackLink(p.flight):''}${p.conf?`<span>Confirmation <b class="num" style="color:var(--ink)">${esc(p.conf)}</b></span>`:''}${p.notes?`<span>${esc(p.notes)}</span>`:''}</div>
+    ${p.kind==='Travel'?`<label class="flightin"><span>Flight #</span><input type="text" id="fl-${p.id}" data-keep value="${esc(p.flight||'')}" placeholder="UA 1234" autocapitalize="characters" autocomplete="off" data-change="flight" data-id="${p.id}"></label>`:''}
     ${peopleEditor(p)}
     ${todos?`<div class="chips">${todos}</div>`:''}
     ${openTodo===p.id?todoForm(p):`<div class="row-actions"><button class="btn ghost small" type="button" data-act="todoopen" data-id="${p.id}">Add to-do</button>${calMenu(p)}</div>`}
@@ -410,18 +411,42 @@ function setupView(){
     </form></div>`;
 }
 
-// A family's at-a-glance card: dates, hotel, people, travel and dining.
+// ---------- flights ----------
+const flightCode=v=>String(v||'').toUpperCase().replace(/[^A-Z0-9 ]/g,'').replace(/\s+/g,' ').trim().slice(0,10);
+const trackLink=code=>code?`<a class="track" href="https://www.flightaware.com/live/flight/${encodeURIComponent(code.replace(/\s+/g,''))}" target="_blank" rel="noopener">Track ${esc(code)} ↗</a>`:'';
+
+// A family's tile: the key facts first (dates, hotel, flights), then parks, activities and dining.
 function famCard(f){
-  const ms=famMembers(f.id), mine=S.plans.filter(p=>planFams(p).includes(f.id)).sort((a,b)=>(a.date+(a.time||'99'))<(b.date+(b.time||'99'))?-1:1);
-  const travel=mine.filter(p=>p.kind==='Travel'), key=mine.filter(p=>p.kind==='Dining');
-  const line=p=>`<li><span class="wt">${esc(fmtD(p.date,{weekday:'short',month:'short',day:'numeric'}))}${p.time?' · '+esc(fmtT(p.time)):''}</span><span class="wtitle">${esc(p.title)}${p.conf?` <span class="muted">· #${esc(p.conf)}</span>`:''}</span></li>`;
-  const sel=f.id;
+  const ms=famMembers(f.id), sel=f.id;
+  const mine=S.plans.filter(p=>planFams(p).includes(f.id)).sort((a,b)=>(a.date+(a.time||'99'))<(b.date+(b.time||'99'))?-1:1);
+  const travel=mine.filter(p=>p.kind==='Travel'), dining=mine.filter(p=>p.kind==='Dining'), acts=mine.filter(p=>p.kind!=='Travel'&&p.kind!=='Dining');
+  const when=p=>`${esc(fmtD(p.date,{weekday:'short',month:'short',day:'numeric'}))}${p.time?' · '+esc(fmtT(p.time)):''}`;
+  const line=p=>`<li><span class="wt">${when(p)}</span><span class="wtitle">${esc(p.title)}${p.conf?` <span class="muted">· #${esc(p.conf)}</span>`:''}</span></li>`;
+  const more=(arr,n)=>arr.length>n?`<div class="fine">and ${arr.length-n} more on the Trip tab</div>`:'';
+  const days=validDate(f.arrive)?Array.from({length:Math.min(diff(f.arrive,f.depart||f.arrive),30)+1},(_,i)=>addDays(f.arrive,i)):[];
+  const parks=days.map(d=>[d,famPark(f.id,d)]).filter(x=>x[1]);
   return`<div class="famcard">
-    <div class="famhead"><h3>${esc(f.name)}</h3><span class="small muted">${plural(ms.length,'person').replace('persons','people')}</span></div>
-    <div class="small">${validDate(f.arrive)?esc(fmtD(f.arrive,{month:'short',day:'numeric'}))+' – '+esc(fmtD(f.depart||f.arrive,{month:'short',day:'numeric'})):'Dates not set'}${f.hotel?` · ${esc(f.hotel)}`:''}</div>
-    ${ms.length?`<div class="small muted">${esc(ms.map(m=>m.name).join(', '))}</div>`:''}
-    ${travel.length?`<div class="label">Travel</div><ul class="flist">${travel.map(line).join('')}</ul>`:''}
-    ${key.length?`<div class="label">Dining</div><ul class="flist">${key.slice(0,6).map(line).join('')}</ul>${key.length>6?`<div class="fine">and ${key.length-6} more</div>`:''}`:''}
+    <div class="famhead"><h3>${esc(f.name)}</h3><span class="small muted">${ms.length?esc(ms.map(m=>m.name).join(', ')):'No one added yet'}</span></div>
+    <dl class="keyfacts">
+      <div><dt>Dates</dt><dd>${validDate(f.arrive)?`${esc(fmtD(f.arrive,{weekday:'short',month:'short',day:'numeric'}))} – ${esc(fmtD(f.depart||f.arrive,{weekday:'short',month:'short',day:'numeric'}))}`:'<span class="muted">Not set</span>'}</dd></div>
+      <div><dt>Hotel</dt><dd>${f.hotel?esc(f.hotel):'<span class="muted">Not set</span>'}</dd></div>
+    </dl>
+    <div class="label">Flights &amp; travel</div>
+    ${travel.length?`<ul class="flist">${travel.map(p=>`<li><span class="wt">${when(p)}</span><span class="wtitle">${esc(p.title)}</span>${p.flight?trackLink(p.flight):'<span class="fine">No flight number yet</span>'}</li>`).join('')}</ul>`:'<div class="fine">No travel added yet.</div>'}
+    <details id="famflight-${sel}"${openAttr('famflight-'+sel,false)}><summary class="small">+ Add a flight</summary>
+      <form class="form" data-form="famflight" data-fam="${sel}" style="margin-top:8px">
+        <label class="field"><span>Date</span><input type="date" id="ff-date-${sel}" data-keep value="${esc(f.arrive||'')}" required></label>
+        <label class="field"><span>Departs</span><input type="time" id="ff-time-${sel}" data-keep></label>
+        <label class="field"><span>From → to</span><input type="text" id="ff-route-${sel}" data-keep placeholder="EWR to MCO" required></label>
+        <label class="field"><span>Flight #</span><input type="text" id="ff-num-${sel}" data-keep placeholder="UA 1234" autocapitalize="characters" autocomplete="off"></label>
+        <div class="wide"><button class="btn" type="submit">Add flight</button></div>
+      </form></details>
+    <div class="label">Parks</div>
+    ${parks.length?`<div class="chips">${parks.map(([d,c])=>parkChip(c,fmtD(d,{weekday:'short',month:'numeric',day:'numeric'}))).join('')}</div>`:'<div class="fine">Pick a park for each day on the Day tab.</div>'}
+    <div class="label">Activities</div>
+    ${acts.length?`<ul class="flist">${acts.slice(0,6).map(line).join('')}</ul>${more(acts,6)}`:'<div class="fine">None yet.</div>'}
+    <div class="label">Dining</div>
+    ${dining.length?`<ul class="flist">${dining.slice(0,6).map(line).join('')}</ul>${more(dining,6)}`:'<div class="fine">None yet.</div>'}
     <details id="famedit-${sel}"${openAttr('famedit-'+sel,!ms.length)}><summary class="small">Edit ${esc(shortName(f.name))} family</summary>
       <form class="form" data-form="famedit" data-fam="${sel}" style="margin-top:10px">
         <label class="field wide"><span>Family name</span><input type="text" id="fe-name-${sel}" data-keep value="${esc(f.name)}" required></label>
@@ -444,7 +469,7 @@ function famCard(f){
 function overviewView(){
   const t=S.trip, days=tripDays(), s=curScope();
   const openTasks=S.tasks.filter(x=>!x.done&&inScope(x)).sort((a,b)=>(a.due||'9')<(b.due||'9')?-1:1).slice(0,4);
-  const famsPanel=`<section class="panel"><div class="panel-head"><h2>${s==='group'&&multiFam()?'Families':'Your family'}</h2><span class="fine">${s==='group'&&multiFam()?'Every family’s dates, hotel, travel and dining':'Dates, hotel, people, travel and dining'}</span></div>
+  const famsPanel=`<section class="panel span2"><div class="panel-head"><h2>${s==='group'&&multiFam()?'Families':esc(fam(s==='group'?firstFam():s)?.name||'Your family')}</h2><span class="fine">Dates, hotel, flights, parks, activities and dining</span></div>
       <div class="famgrid">${scopeFams().map(famCard).join('')}</div>
       <details id="famadd"${openAttr('famadd',false)}><summary class="small">Add another family</summary>
         <form class="form inline" data-form="famadd" style="margin-top:8px"><input type="text" id="fa-name" data-keep placeholder="Logothetis Family" aria-label="Family name" required><button class="btn" type="submit">Add</button></form>
@@ -471,7 +496,7 @@ function overviewView(){
       <div><button class="btn ghost small" data-act="signout">Sign out of this trip on this device</button></div>
       <div class="fine">App version ${APP_VERSION}</div>
     </section>`;
-  return`${scopeBar()}<div class="grid">${s==='group'&&multiFam()?famsPanel+glance:glance+famsPanel}${upnext}${wins}${details}${share}</div>`;
+  return`${scopeBar()}<div class="grid">${famsPanel}${glance}${upnext}${wins}${details}${share}</div>`;
 }
 
 function weekView(){
@@ -510,6 +535,7 @@ function daysView(){
         <label class="field"><span>Time</span><input type="time" id="pl-time" data-keep></label>
         <label class="field"><span>Type</span><select id="pl-kind" data-keep>${KINDS.map(k=>`<option>${k}</option>`).join('')}</select></label>
         <label class="field wide"><span>What</span><input type="text" id="pl-title" data-keep list="sugg" placeholder="Dinner at Sanaa" required></label>
+        <label class="field flightonly"><span>Flight #</span><input type="text" id="pl-flight" data-keep placeholder="UA 1234" autocapitalize="characters" autocomplete="off"></label>
         <label class="field"><span>Confirmation #</span><input type="text" id="pl-conf" data-keep placeholder="Optional"></label>
         <label class="field"><span>Notes</span><input type="text" id="pl-notes" data-keep placeholder="Optional"></label>
         ${pickFams.map(pf=>{const ms=famMembers(pf.id);return ms.length?`<fieldset class="wide whopick"><legend>${pickFams.length>1?esc(pf.name):'Who’s going'}</legend>${ms.map(m=>`<label class="check"><input type="checkbox" id="pl-who-${m.id}" data-keep data-who-pick="${m.id}"${sel.includes(m.id)?' checked':''}>${esc(m.name)}</label>`).join('')}</fieldset>`:''}).join('')}
@@ -600,8 +626,11 @@ function render(){
   const gate=['config','welcome','locked'].includes(S.mode);
   view.innerHTML=S.trip&&!gate?VIEWS[currentTab()]():setupView();
   for(const id in keep){const el=document.getElementById(id);if(el)el.type==='checkbox'?el.checked=keep[id]:el.value=keep[id]}
+  syncKind();
   if(focusId){const el=document.getElementById(focusId);if(el){el.focus();try{sel&&el.setSelectionRange(...sel)}catch{}}}
 }
+
+function syncKind(){const k=document.getElementById('pl-kind'),f=document.querySelector('.flightonly');if(k&&f)f.hidden=k.value!=='Travel'}
 
 // ---------- actions ----------
 const val=id=>(document.getElementById(id)?.value||'').trim();
@@ -627,6 +656,12 @@ document.addEventListener('submit',e=>{
     if(validDate(arrive)&&depart<arrive){toast('The leave date is before the arrival date.');return}
     act(store.updateTrip({families:famSaveList(fid,{name:name.slice(0,40),hotel:val('fe-hotel-'+fid).slice(0,80),arrive,depart,onsite:document.getElementById('fe-onsite-'+fid).checked})}),'Saved');
   }
+  if(k==='famflight'){
+    const date=val('ff-date-'+fid), route=val('ff-route-'+fid);
+    if(!validDate(date)||!route){toast('Add the date and where the flight goes.');return}
+    const d={date,time:val('ff-time-'+fid),title:route.slice(0,80),kind:'Travel',conf:'',notes:'',who:famMembers(fid).map(m=>m.id),flight:flightCode(val('ff-num-'+fid))};
+    clear('ff-time-'+fid,'ff-route-'+fid,'ff-num-'+fid);act(store.add('plans',d),'Flight added');return;
+  }
   if(k==='famadd'){
     const name=val('fa-name');if(!name)return;clear('fa-name');
     const first=families()[0]||{}, nf={id:uid(),name:name.slice(0,40),hotel:'',arrive:first.arrive||'',depart:first.depart||'',onsite:false};
@@ -642,8 +677,9 @@ document.addEventListener('submit',e=>{
     const picks=[...f.querySelectorAll('[data-who-pick]')];
     const who=picks.filter(c=>c.checked).map(c=>c.dataset.whoPick);
     if(picks.length&&!who.length){toast('Pick at least one person who’s going.');return}
-    const d={date:selDay,time:val('pl-time'),title,kind:val('pl-kind')||'Other',conf:val('pl-conf'),notes:val('pl-notes'),who};
-    clear('pl-time','pl-title','pl-conf','pl-notes');act(store.add('plans',d));
+    const kind=val('pl-kind')||'Other';
+    const d={date:selDay,time:val('pl-time'),title,kind,conf:val('pl-conf'),notes:val('pl-notes'),who,...(kind==='Travel'&&val('pl-flight')?{flight:flightCode(val('pl-flight'))}:{})};
+    clear('pl-time','pl-title','pl-conf','pl-notes','pl-flight');act(store.add('plans',d));
   }
   if(k==='plantodo'){
     const text=val('pt-text'),due=val('pt-due'),owner=val('pt-owner');
@@ -691,9 +727,11 @@ document.addEventListener('click',e=>{
   if(a==='signout'){signOut(auth).then(()=>location.reload())}
 });
 document.addEventListener('change',e=>{
+  if(e.target.id==='pl-kind')syncKind();
   const el=e.target.closest('[data-change]');if(!el)return;
   const {change:c,id,coll,day}=el.dataset, s=curScope();
   if(c==='toggle')act(store.update(coll,id,{done:el.checked}));
+  if(c==='flight'){const code=flightCode(el.value);el.value=code;act(store.update('plans',id,{flight:code}),code?`Flight ${code} saved`:'Flight number removed')}
   if(c==='daypark'&&s!=='group')act(store.updateTrip({famParks:{[s]:{[day]:el.value}}}));
   if(c==='dayhotel'&&s!=='group')act(store.updateTrip({famHotels:{[s]:{[day]:el.value.trim().slice(0,80)}}}));
   if(c==='addwho'&&el.value){const p=S.plans.find(x=>x.id===id);if(p)act(store.update('plans',id,{who:[...planWho(p),el.value]}))}

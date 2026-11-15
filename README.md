@@ -2,7 +2,7 @@
 
 A shared, password-protected trip planner for the family. It's plain HTML, CSS and JavaScript with no build step, hosted on GitHub Pages, with trip data stored in Firebase (Firestore).
 
-- **Home:** countdown, trip at a glance, next to-dos, booking windows (dining, Lightning Lane, check-in) worked out from your dates, who's going, and sharing.
+- **Home:** each family's tile first (dates, hotel, flights with numbers and a FlightAware tracking link, then parks, activities and dining), then the countdown, trip at a glance, next to-dos, booking windows (dining, Lightning Lane, check-in) worked out from your dates, who's going, and sharing.
 - **Trip:** every day at once, with its park, hotel and plans, plus **Add all to calendar**.
 - **Day:** a park and hotel for each day and a timed plan. Each plan lists only the people going (tap × to remove someone), can spawn a to-do with a due date and owner, and can be added to Apple or Google Calendar.
 - **Must-dos:** everyone votes; known rides fill in park and height minimum, and anyone too short is flagged. Heights are set here.
