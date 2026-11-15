@@ -1,0 +1,9 @@
+# Created when the project is opened in Xcode. Not part of the app.
+xcuserdata/
+*.xcuserstate
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+.DS_Store
