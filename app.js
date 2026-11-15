@@ -3,7 +3,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, onSnapshot, setDoc, updateDoc, deleteDoc, addDoc, FieldPath } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-const APP_VERSION='2026.11.15-3';   // shown at the bottom of Home so you can tell which version a phone has
+const APP_VERSION='2026.11.15-4';   // shown at the bottom of Home so you can tell which version a phone has
 
 // ---------- helpers ----------
 const $=(s,r=document)=>r.querySelector(s);
@@ -99,16 +99,9 @@ const multiFam=()=>families().length>1;
 // Who's on a plan, in the family list's order. Plans saved before "who" existed belong to the first family.
 const planWho=p=>Array.isArray(p.who)?party().filter(m=>p.who.includes(m.id)).map(m=>m.id):famMembers(firstFam()).map(m=>m.id);
 const planFams=p=>[...new Set(planWho(p).map(id=>famOf(member(id))))];
-// Key plans are what other families need to see: travel and dining by default, or anything starred.
-const isKey=p=>typeof p.key==='boolean'?p.key:(p.kind==='Travel'||p.kind==='Dining');
-// 'mine' = shown normally; 'other' = another family's key plan, shown compact; null = hidden.
-function vis(p){
-  const sel=selected();
-  if(planWho(p).some(id=>sel.includes(id)))return'mine';
-  const s=curScope();
-  if(s!=='group'&&isKey(p)&&!planFams(p).includes(s)&&planWho(p).length)return'other';
-  return null;
-}
+// A plan shows in a view only when someone in that view (and switched on) is on it.
+// So a family's view includes plans shared with another family, and nothing else of theirs.
+const vis=p=>planWho(p).some(id=>selected().includes(id));
 const dayPlans=d=>S.plans.filter(p=>p.date===d).sort((a,b)=>(a.time||'99')<(b.time||'99')?-1:1);
 const listJoin=(a,w='and')=>a.length<2?a.join(''):a.slice(0,-1).join(', ')+` ${w} `+a[a.length-1];
 function whoLabel(p){
@@ -123,7 +116,6 @@ function whoLabel(p){
   }
   return listJoin(parts);
 }
-const famLabel=p=>planFams(p).map(fid=>fam(fid)?.name).filter(Boolean).join(' + ');
 
 // Items on the to-do and packing lists belong to a family (older ones to the first family).
 const itemFam=x=>x.family&&fam(x.family)?x.family:firstFam();
@@ -264,7 +256,7 @@ function viewingBar(){
   const fs=families();if(fs.length<2)return'';
   const s=curScope(), others=f=>fs.filter(x=>x.id!==f.id).map(x=>shortName(x.name));
   const cap=s==='group'?`Everyone in the ${listJoin(fs.map(f=>shortName(f.name)))} families, all plans`
-    :`${fam(s).name} plans, plus key plans from the ${listJoin(others(fam(s)))} family`;
+    :`Plans with anyone from the ${shortName(fam(s).name)} family, including ones shared with the ${listJoin(others(fam(s)))} family`;
   return`<div class="viewing"><span class="label">Viewing</span>
     <div class="scopebar" role="tablist" aria-label="Whose plans to show">${[['group','Group'],...fs.map(f=>[f.id,shortName(f.name)])].map(([k,n])=>`<button type="button" class="seg" role="tab" aria-selected="${s===k}" data-act="scope" data-who="${k}">${esc(n)}</button>`).join('')}</div>
     <div class="viewcap">${esc(cap)}</div></div>`;
@@ -361,27 +353,23 @@ function todoForm(p){
     <label class="field"><span>Owner</span><select id="pt-owner" data-keep required><option value="">Choose…</option>${owners.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select></label>
     <div class="wide" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="submit">Create to-do</button><button class="btn ghost" type="button" data-act="todoclose">Cancel</button></div></form>`;
 }
-const keyBtn=p=>multiFam()?`<button type="button" class="keybtn" aria-pressed="${isKey(p)}" data-act="key" data-id="${p.id}" title="Key plans show up for the other families">${isKey(p)?'★ Key for group':'☆ Mark as key'}</button>`:'';
+// On a plan that includes people from another family, say so.
+const sharedChip=p=>{
+  if(!multiFam())return'';
+  const fs=planFams(p);if(fs.length<2)return'';
+  const s=curScope(), others=fs.filter(f=>f!==s).map(f=>shortName(fam(f)?.name));
+  return`<span class="chip fam">${s==='group'?'Both families':'With '+esc(listJoin(others))}</span>`;
+};
 function planRow(p){
   const todos=planTodos(p);
   return`<div class="row plan"><div class="time">${esc(fmtT(p.time))}</div><div class="body">
     <div class="title">${esc(p.title)}</div>
-    <div class="meta"><span class="chip">${esc(p.kind||'Other')}</span>${keyBtn(p)}${p.conf?`<span>Confirmation <b class="num" style="color:var(--ink)">${esc(p.conf)}</b></span>`:''}${p.notes?`<span>${esc(p.notes)}</span>`:''}</div>
+    <div class="meta"><span class="chip">${esc(p.kind||'Other')}</span>${sharedChip(p)}${p.conf?`<span>Confirmation <b class="num" style="color:var(--ink)">${esc(p.conf)}</b></span>`:''}${p.notes?`<span>${esc(p.notes)}</span>`:''}</div>
     ${peopleEditor(p)}
     ${todos?`<div class="chips">${todos}</div>`:''}
     ${openTodo===p.id?todoForm(p):`<div class="row-actions"><button class="btn ghost small" type="button" data-act="todoopen" data-id="${p.id}">Add to-do</button>${calMenu(p)}</div>`}
   </div>${delBtn('del',p.id,'plans',p.title)}</div>`;
 }
-// Another family's key plan: the facts only, so it doesn't crowd your own plans.
-function otherRow(p){
-  return`<div class="row plan other"><div class="time">${esc(fmtT(p.time))}</div><div class="body">
-    <div class="title">${esc(p.title)}</div>
-    <div class="meta"><span class="chip fam">${esc(famLabel(p))}</span><span class="chip">${esc(p.kind||'Other')}</span>${p.conf?`<span>Confirmation <b class="num" style="color:var(--ink)">${esc(p.conf)}</b></span>`:''}${p.notes?`<span>${esc(p.notes)}</span>`:''}</div>
-    <div class="small muted">${esc(whoLabel(p))}</div>
-    <div class="row-actions">${calMenu(p)}</div>
-  </div></div>`;
-}
-const anyRow=p=>vis(p)==='other'?otherRow(p):planRow(p);
 const visiblePlans=d=>dayPlans(d).filter(p=>vis(p));
 
 // ---------- views ----------
@@ -419,10 +407,10 @@ function setupView(){
     </form></div>`;
 }
 
-// The at-a-glance card each family sees for every family: dates, hotel, people, travel and key plans.
+// A family's at-a-glance card: dates, hotel, people, travel and dining.
 function famCard(f){
   const ms=famMembers(f.id), mine=S.plans.filter(p=>planFams(p).includes(f.id)).sort((a,b)=>(a.date+(a.time||'99'))<(b.date+(b.time||'99'))?-1:1);
-  const travel=mine.filter(p=>p.kind==='Travel'), key=mine.filter(p=>isKey(p)&&p.kind!=='Travel');
+  const travel=mine.filter(p=>p.kind==='Travel'), key=mine.filter(p=>p.kind==='Dining');
   const line=p=>`<li><span class="wt">${esc(fmtD(p.date,{weekday:'short',month:'short',day:'numeric'}))}${p.time?' · '+esc(fmtT(p.time)):''}</span><span class="wtitle">${esc(p.title)}${p.conf?` <span class="muted">· #${esc(p.conf)}</span>`:''}</span></li>`;
   const sel=f.id;
   return`<div class="famcard">
@@ -430,7 +418,7 @@ function famCard(f){
     <div class="small">${validDate(f.arrive)?esc(fmtD(f.arrive,{month:'short',day:'numeric'}))+' – '+esc(fmtD(f.depart||f.arrive,{month:'short',day:'numeric'})):'Dates not set'}${f.hotel?` · ${esc(f.hotel)}`:''}</div>
     ${ms.length?`<div class="small muted">${esc(ms.map(m=>m.name).join(', '))}</div>`:''}
     ${travel.length?`<div class="label">Travel</div><ul class="flist">${travel.map(line).join('')}</ul>`:''}
-    ${key.length?`<div class="label">Key plans</div><ul class="flist">${key.slice(0,6).map(line).join('')}</ul>${key.length>6?`<div class="fine">and ${key.length-6} more</div>`:''}`:''}
+    ${key.length?`<div class="label">Dining</div><ul class="flist">${key.slice(0,6).map(line).join('')}</ul>${key.length>6?`<div class="fine">and ${key.length-6} more</div>`:''}`:''}
     <details id="famedit-${sel}"${openAttr('famedit-'+sel,!ms.length)}><summary class="small">Edit ${esc(shortName(f.name))} family</summary>
       <form class="form" data-form="famedit" data-fam="${sel}" style="margin-top:10px">
         <label class="field wide"><span>Family name</span><input type="text" id="fe-name-${sel}" data-keep value="${esc(f.name)}" required></label>
@@ -453,8 +441,8 @@ function famCard(f){
 function overviewView(){
   const t=S.trip, days=tripDays(), s=curScope();
   const openTasks=S.tasks.filter(x=>!x.done&&inScope(x)).sort((a,b)=>(a.due||'9')<(b.due||'9')?-1:1).slice(0,4);
-  const famsPanel=`<section class="panel"><div class="panel-head"><h2>${multiFam()?'Families':'Your family'}</h2><span class="fine">${multiFam()?'Everyone’s dates, hotels and key plans':'Dates, hotel and people'}</span></div>
-      <div class="famgrid">${(s==='group'?families():[fam(s),...families().filter(f=>f.id!==s)]).map(famCard).join('')}</div>
+  const famsPanel=`<section class="panel"><div class="panel-head"><h2>${s==='group'&&multiFam()?'Families':'Your family'}</h2><span class="fine">${s==='group'&&multiFam()?'Every family’s dates, hotel, travel and dining':'Dates, hotel, people, travel and dining'}</span></div>
+      <div class="famgrid">${scopeFams().map(famCard).join('')}</div>
       <details id="famadd"${openAttr('famadd',false)}><summary class="small">Add another family</summary>
         <form class="form inline" data-form="famadd" style="margin-top:8px"><input type="text" id="fa-name" data-keep placeholder="Logothetis Family" aria-label="Family name" required><button class="btn" type="submit">Add</button></form>
       </details></section>`;
@@ -493,7 +481,7 @@ function weekView(){
       <button class="wday-head" data-act="goday" data-day="${d}" aria-label="Open ${esc(fmtD(d,{weekday:'long',month:'long',day:'numeric'}))}"><span class="label">Day ${i+1} · ${esc(fmtD(d,{weekday:'long'}))}</span><b>${esc(fmtD(d,{month:'long',day:'numeric'}))}</b></button>
       <div class="chips">${parkChips(d)}</div>
       ${hotelNotes(d)}
-      ${ps.length?`<ol class="wlist">${ps.map(p=>`<li class="${vis(p)==='other'?'other':''}"><span class="wt">${esc(p.time?fmtT(p.time):'Any time')}</span><span><span class="wtitle">${esc(p.title)}</span><span class="wwho">${vis(p)==='other'?esc(famLabel(p))+' · ':''}${esc(whoLabel(p))}</span></span></li>`).join('')}</ol>`:`<div class="empty">${all.length?'Nothing for the people selected':'Nothing planned yet'}</div>`}
+      ${ps.length?`<ol class="wlist">${ps.map(p=>`<li><span class="wt">${esc(p.time?fmtT(p.time):'Any time')}</span><span><span class="wtitle">${esc(p.title)}</span><span class="wwho">${esc(whoLabel(p))}</span></span></li>`).join('')}</ol>`:`<div class="empty">${all.length?'Nothing for the people selected':'Nothing planned yet'}</div>`}
     </section>`}).join('')}</div>`;
 }
 
@@ -512,7 +500,7 @@ function daysView(){
     <section class="panel span2"><div class="panel-head"><div style="display:flex;flex-direction:column;gap:4px;min-width:0"><div class="label">Day ${days.indexOf(d)+1} of ${days.length}</div><h2>${esc(fmtD(d,{weekday:'long',month:'long',day:'numeric'}))}</h2>${hotelNotes(d)}</div>
       ${dayFields}</div>
       ${!f&&multiFam()?'<div class="fine">Pick a family at the top to set its park and hotel for the day.</div>':''}
-      <div class="list">${plans.map(anyRow).join('')||`<div class="empty">${hidden?'Nothing for the people selected on this day.':'Nothing planned for this day yet.'}</div>`}</div>
+      <div class="list">${plans.map(planRow).join('')||`<div class="empty">${hidden?'Nothing for the people selected on this day.':'Nothing planned for this day yet.'}</div>`}</div>
       ${hidden&&plans.length?`<div class="fine">${plural(hidden,'plan')} hidden by the people filter.</div>`:''}
       <details class="addbox" id="add-plan"${openAttr('add-plan',!all.length)}><summary class="btn">+ Add a plan</summary>
       <form class="form" data-form="plan">
@@ -690,7 +678,6 @@ document.addEventListener('click',e=>{
   if(a==='pdel'){act(store.updateTrip({party:party().filter(p=>p.id!==id)}))}
   if(a==='famdel'){if(famMembers(id).length){toast('Remove this family’s people first.');return}act(store.updateTrip({families:families().filter(f=>f.id!==id)}),'Family removed')}
   if(a==='vote'){const w=S.wishes.find(x=>x.id===id);if(w)act(store.update('wishes',id,{votes:toggleIn(w.votes||[],who)}))}
-  if(a==='key'){const p=S.plans.find(x=>x.id===id);if(p)act(store.update('plans',id,{key:!isKey(p)}))}
   if(a==='unwho'){const p=S.plans.find(x=>x.id===id);if(p)act(store.update('plans',id,{who:planWho(p).filter(x=>x!==who)}))}
   if(a==='todoopen'){openTodo=id;render();document.getElementById('pt-due')?.focus()}
   if(a==='todoclose'){openTodo=null;render()}

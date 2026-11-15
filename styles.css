@@ -253,12 +253,6 @@ select.addwho{width:auto;min-height:36px;padding:4px 10px;font-size:16px;border-
 .famcard details > summary{min-height:38px;color:var(--accent)}
 .x.wide{width:auto;margin:0;padding:0 12px;font-size:.86rem;font-weight:700;color:var(--bad);border:1px solid var(--line)}
 .chip.fam{color:var(--ink);background:var(--accent-soft)}
-.keybtn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:3px 10px;min-height:30px;font-size:.78rem;font-weight:700;color:var(--muted);cursor:pointer}
-.keybtn[aria-pressed="true"]{color:var(--spark);border-color:color-mix(in srgb,var(--spark) 50%,transparent);background:color-mix(in srgb,var(--spark) 12%,transparent)}
-.row.plan.other .title{font-weight:600}
-.row.plan.other{opacity:.92}
-.row.plan.other .time{color:var(--muted)}
-.wlist li.other .wt,.wlist li.other .wtitle{color:var(--muted)}
 .gday .chips{gap:4px}
 @media (min-width:760px){.famgrid{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}}
 

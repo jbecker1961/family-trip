@@ -26,8 +26,8 @@ A trip can have several families (for example, two families travelling together)
 
 - The switch at the top of each tab picks **Group** or one family. Each phone remembers its choice.
 - Under it, that view's people are all on; tap someone to hide plans that only include them.
-- In a family's view, other families' **key** plans appear in a compact, read-only form. Travel and dining plans are key by default; any plan can be starred or un-starred.
-- **Home > Families** shows every family's dates, hotel, people, travel and key plans, and is where a family edits its details or adds people. **Add another family** is at the bottom of that panel.
+- A family's view shows only plans with at least one of its people on them, including plans shared with another family (labeled "With …"). Everything else is in Group.
+- **Home > Families** shows each family's dates, hotel, people, travel and dining (your own family in a family view, every family in Group), and is where a family edits its details or adds people. **Add another family** is at the bottom of that panel.
 
 The family views reduce clutter; they are not private. Everyone with the link and password can switch to Group.
 
