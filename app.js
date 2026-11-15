@@ -3,7 +3,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, onSnapshot, setDoc, updateDoc, deleteDoc, addDoc, FieldPath } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-const APP_VERSION='2026.11.15-7';   // shown at the bottom of Home so you can tell which version a phone has
+const APP_VERSION='2026.11.15-8';   // shown at the bottom of Home so you can tell which version a phone has
 
 // ---------- helpers ----------
 const $=(s,r=document)=>r.querySelector(s);
@@ -55,7 +55,9 @@ const initial=n=>esc((n||'?').trim().charAt(0).toUpperCase()||'?');
 // Trips made before families existed get one family built from the old trip-wide fields.
 function families(){
   const t=S.trip;if(!t)return[];
-  if(Array.isArray(t.families)&&t.families.length)return t.families;
+  // A family's dates count only once that family has entered them (datesSet). The first family keeps
+  // the trip's original dates. This also ignores dates that were copied from another family earlier.
+  if(Array.isArray(t.families)&&t.families.length)return t.families.map((f,i)=>i===0||f.datesSet?f:{...f,arrive:'',depart:''});
   // "Becker Family 2027" -> "Becker Family"
   const nm=String(t.name||'').replace(/\s*\b(19|20)\d\d\b\s*/g,' ').replace(/\s+(trip|vacation)$/i,'').trim();
   return[{id:'fam1',name:/family/i.test(nm)?nm:'Our family',hotel:t.hotel||'',arrive:t.start||'',depart:t.end||t.start||'',onsite:!!t.onsite}];
@@ -69,7 +71,7 @@ function seedFamilies(){
   if(seeded||!t||(Array.isArray(t.families)&&t.families.length))return;
   seeded=true;
   const base=families(), first=base[0]||{};
-  const add=SEED_FAMILIES.filter(x=>!base.some(f=>f.id===x.id)).map(x=>({id:x.id,name:x.name,hotel:'',arrive:first.arrive||'',depart:first.depart||'',onsite:false}));
+  const add=SEED_FAMILIES.filter(x=>!base.some(f=>f.id===x.id)).map(x=>({id:x.id,name:x.name,hotel:'',arrive:'',depart:'',onsite:false}));
   store.updateTrip({families:[...base,...add]});
 }
 const fam=id=>families().find(f=>f.id===id);
@@ -291,8 +293,8 @@ function scopeBar(){
 // ---------- parks and hotels shown for the families in scope ----------
 const HOTEL_ICON='<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M3 19V7M3 15h18v4M21 15v-2.5A2.5 2.5 0 0 0 18.5 10H11v5M7 12.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 function hotelText(fid,d){
-  const f=fam(fid);if(!f)return'';
-  if(validDate(f.arrive)&&d<f.arrive||validDate(f.depart)&&d>f.depart)return'';
+  const f=fam(fid);if(!f||!validDate(f.arrive))return'';
+  if(d<f.arrive||validDate(f.depart)&&d>f.depart)return'';
   const first=d===f.arrive, last=d===f.depart&&!first;
   const h=last?famHotel(fid,addDays(d,-1)):famHotel(fid,d);if(!h)return'';
   const prev=first||last?'':famHotel(fid,addDays(d,-1));
@@ -480,7 +482,7 @@ function famCard(f){
   return`<div class="famcard">
     <div class="famhead"><h3>${esc(f.name)}</h3><span class="small muted">${ms.length?esc(ms.map(m=>m.name).join(', ')):'No one added yet'}</span></div>
     <dl class="keyfacts">
-      <div><dt>Dates</dt><dd>${validDate(f.arrive)?`${esc(fmtD(f.arrive,{weekday:'short',month:'short',day:'numeric'}))} – ${esc(fmtD(f.depart||f.arrive,{weekday:'short',month:'short',day:'numeric'}))}`:'<span class="muted">Not set</span>'}</dd></div>
+      <div><dt>Dates</dt><dd>${validDate(f.arrive)?`${esc(fmtD(f.arrive,{weekday:'short',month:'short',day:'numeric'}))} – ${esc(fmtD(f.depart||f.arrive,{weekday:'short',month:'short',day:'numeric'}))}`:`<button type="button" class="btn small" data-act="adddates" data-id="${f.id}">Add your travel dates</button>`}</dd></div>
       <div><dt>Hotel</dt><dd>${f.hotel?esc(f.hotel):'<span class="muted">Not set</span>'}</dd></div>
     </dl>
     <div class="label">Flights</div>
@@ -692,10 +694,11 @@ document.addEventListener('submit',e=>{
   }
   if(k==='tripedit')act(store.updateTrip({name:val('t-name')||'Our Disney trip',resort:val('t-resort')}),'Saved');
   if(k==='famedit'){
-    const name=val('fe-name-'+fid), arrive=val('fe-arrive-'+fid), depart=val('fe-depart-'+fid)||arrive;
+    const name=val('fe-name-'+fid), arrive=val('fe-arrive-'+fid), depart=val('fe-depart-'+fid);
     if(!name){toast('Give the family a name.');return}
+    if(validDate(arrive)!==validDate(depart)){toast('Add both the arrival and the leave date.');return}
     if(validDate(arrive)&&depart<arrive){toast('The leave date is before the arrival date.');return}
-    act(store.updateTrip({families:famSaveList(fid,{name:name.slice(0,40),hotel:val('fe-hotel-'+fid).slice(0,80),arrive,depart,onsite:document.getElementById('fe-onsite-'+fid).checked})}),'Saved');
+    act(store.updateTrip({families:famSaveList(fid,{name:name.slice(0,40),hotel:val('fe-hotel-'+fid).slice(0,80),arrive,depart,datesSet:validDate(arrive),onsite:document.getElementById('fe-onsite-'+fid).checked})}),'Saved');
   }
   if(k==='leg'){
     const g=n=>val(`lg-${fid}-${f.dataset.leg}-${n}`), date=g('date');
@@ -709,7 +712,7 @@ document.addEventListener('submit',e=>{
   }
   if(k==='famadd'){
     const name=val('fa-name');if(!name)return;clear('fa-name');
-    const first=families()[0]||{}, nf={id:uid(),name:name.slice(0,40),hotel:'',arrive:first.arrive||'',depart:first.depart||'',onsite:false};
+    const nf={id:uid(),name:name.slice(0,40),hotel:'',arrive:'',depart:'',onsite:false};
     openBoxes.add('famedit-'+nf.id);
     act(store.updateTrip({families:[...families(),nf]}),`${nf.name} added. Add their people below.`);
   }
@@ -760,6 +763,7 @@ document.addEventListener('click',e=>{
   if(a==='goday'){selDay=day;ls.set('trip-selday',day);location.hash='days'}
   if(a==='del'){const it=S[coll].find(x=>x.id===id);act(store.remove(coll,id),it?`Deleted “${it.title||it.text}”`:null)}
   if(a==='pdel'){act(store.updateTrip({party:party().filter(p=>p.id!==id)}))}
+  if(a==='adddates'){openBoxes.add('famedit-'+id);closedBoxes.delete('famedit-'+id);render();document.getElementById('fe-arrive-'+id)?.focus()}
   if(a==='legdel'){const[fid2,leg]=id.split('|');act(store.updateTrip({families:famSaveList(fid2,{[leg]:null})}),'Flight removed')}
   if(a==='famdel'){if(famMembers(id).length){toast('Remove this family’s people first.');return}act(store.updateTrip({families:families().filter(f=>f.id!==id)}),'Family removed')}
   if(a==='vote'){const w=S.wishes.find(x=>x.id===id);if(w)act(store.update('wishes',id,{votes:toggleIn(w.votes||[],who)}))}
