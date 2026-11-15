@@ -20,6 +20,17 @@ Calendar export is a one-time copy, not a live link: GitHub Pages can't serve a 
 - **Add all to calendar** on the Trip tab makes one `.ics` file with every plan shown (it follows the person filter).
 - Events use the park's time zone. Each event keeps the plan's ID, so adding a changed plan again updates the event instead of duplicating it in Apple Calendar and in Google Calendar imports.
 
+## Families
+
+A trip can have several families (for example, two families travelling together). Each family has its own people, hotel, arrival and leave dates, park for each day, booking windows, to-dos and packing. Must-dos are shared.
+
+- The switch at the top of each tab picks **Group** or one family. Each phone remembers its choice.
+- Under it, that view's people are all on; tap someone to hide plans that only include them.
+- In a family's view, other families' **key** plans appear in a compact, read-only form. Travel and dining plans are key by default; any plan can be starred or un-starred.
+- **Home > Families** shows every family's dates, hotel, people, travel and key plans, and is where a family edits its details or adds people. **Add another family** is at the bottom of that panel.
+
+The family views reduce clutter; they are not private. Everyone with the link and password can switch to Group.
+
 ## How access works
 
 Each trip has a link (`?t=<random key>`) and a **trip password**. Both are needed, and only the organizer can create a trip or set its password.

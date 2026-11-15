@@ -237,3 +237,27 @@ select.addwho{width:auto;min-height:36px;padding:4px 10px;font-size:16px;border-
   .toast{bottom:24px}
 }
 @media (prefers-reduced-motion:no-preference){.panel,.wday{animation:rise .2s ease both}@keyframes rise{from{transform:translateY(3px)}to{transform:none}}}
+
+/* ---------- families ---------- */
+.scopebar{display:flex;gap:4px;padding:4px;background:var(--sunk);border-radius:12px;margin-bottom:10px;overflow-x:auto;scrollbar-width:none}
+.scopebar::-webkit-scrollbar{display:none}
+.seg{flex:1 0 auto;min-height:40px;padding:6px 14px;border:0;border-radius:9px;background:transparent;color:var(--muted);font-weight:700;font-size:.9rem;cursor:pointer;white-space:nowrap}
+.seg[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px color-mix(in srgb,var(--ink) 15%,transparent)}
+.famgrid{display:grid;gap:10px;grid-template-columns:minmax(0,1fr)}
+.famcard{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--bg);display:flex;flex-direction:column;gap:6px;min-width:0}
+.famhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.famhead h3{font-size:1.05rem}
+.flist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.flist li{display:flex;flex-direction:column;font-size:.9rem}
+.flist .wt{font-size:.78rem}
+.famcard details > summary{min-height:38px;color:var(--accent)}
+.x.wide{width:auto;margin:0;padding:0 12px;font-size:.86rem;font-weight:700;color:var(--bad);border:1px solid var(--line)}
+.chip.fam{color:var(--ink);background:var(--accent-soft)}
+.keybtn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:3px 10px;min-height:30px;font-size:.78rem;font-weight:700;color:var(--muted);cursor:pointer}
+.keybtn[aria-pressed="true"]{color:var(--spark);border-color:color-mix(in srgb,var(--spark) 50%,transparent);background:color-mix(in srgb,var(--spark) 12%,transparent)}
+.row.plan.other .title{font-weight:600}
+.row.plan.other{opacity:.92}
+.row.plan.other .time{color:var(--muted)}
+.wlist li.other .wt,.wlist li.other .wtitle{color:var(--muted)}
+.gday .chips{gap:4px}
+@media (min-width:760px){.famgrid{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}}

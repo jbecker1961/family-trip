@@ -26,7 +26,6 @@ const PARKS={
 const PCOLOR={mk:'mk',ep:'ep',hs:'hs',ak:'ak',ds:'ds',wp:'wp',rest:'rest',travel:'travel',dlp:'mk',dca:'ep',dtd:'ds'};
 const RESORTS={wdw:'Walt Disney World',dl:'Disneyland Resort'};
 const parkName=c=>{for(const r of Object.values(PARKS))for(const[k,n]of r)if(k===c)return n;return''};
-const parkChip=c=>c&&parkName(c)?`<span class="chip park" style="--pc:var(--p-${PCOLOR[c]||'rest'})">${esc(parkName(c))}</span>`:'';
 const parkOpts=(sel,blank='No park yet')=>`<option value="">${blank}</option>`+PARKS[resort()].map(([k,n])=>`<option value="${k}"${k===sel?' selected':''}>${esc(n)}</option>`).join('');
 const KINDS=['Ride','Lightning Lane','Dining','Show','Character meet','Break','Travel','Other'];
 const MCOL=['var(--p-mk)','var(--p-ds)','var(--p-ak)','var(--p-ep)','var(--p-hs)','var(--spark)','var(--p-wp)'];
@@ -48,8 +47,78 @@ const party=()=>Array.isArray(S.trip?.party)?S.trip.party:[];
 const member=id=>party().find(p=>p.id===id);
 const mcol=id=>{const i=party().findIndex(p=>p.id===id);return MCOL[(i<0?0:i)%MCOL.length]};
 const initial=n=>esc((n||'?').trim().charAt(0).toUpperCase()||'?');
-const tripDays=()=>{const t=S.trip;if(!t||!validDate(t.start)||!validDate(t.end))return[];const n=Math.min(Math.max(diff(t.start,t.end),0),30);return Array.from({length:n+1},(_,i)=>addDays(t.start,i))};
 
+// ---------- families ----------
+// A trip has one or more families, each with its own people, hotel, dates and parks.
+// Trips made before families existed get one family built from the old trip-wide fields.
+function families(){
+  const t=S.trip;if(!t)return[];
+  if(Array.isArray(t.families)&&t.families.length)return t.families;
+  // "Becker Family 2027" -> "Becker Family"
+  const nm=String(t.name||'').replace(/\s*\b(19|20)\d\d\b\s*/g,' ').replace(/\s+(trip|vacation)$/i,'').trim();
+  return[{id:'fam1',name:/family/i.test(nm)?nm:'Our family',hotel:t.hotel||'',arrive:t.start||'',depart:t.end||t.start||'',onsite:!!t.onsite}];
+}
+const fam=id=>families().find(f=>f.id===id);
+const firstFam=()=>families()[0]?.id;
+const famOf=m=>m&&m.family&&fam(m.family)?m.family:firstFam();
+const famMembers=fid=>party().filter(m=>famOf(m)===fid);
+const shortName=n=>String(n||'').replace(/\s+family$/i,'').trim()||n;
+const famSaveList=(fid,patch)=>families().map(f=>f.id===fid?{...f,...patch}:f);
+
+// Trip days run from the earliest arrival to the latest departure across families.
+function tripRange(){
+  const ds=families().flatMap(f=>[f.arrive,f.depart]).filter(validDate).sort();
+  return ds.length?[ds[0],ds[ds.length-1]]:null;
+}
+const tripDays=()=>{const r=tripRange();if(!r)return[];const n=Math.min(diff(r[0],r[1]),30);return Array.from({length:n+1},(_,i)=>addDays(r[0],i))};
+
+// ---------- scope: Group or one family, then that scope's people ----------
+// Each device remembers its own scope, so the Logothetis phones can stay on their family.
+let scope=ls.get('trip-scope','group');
+let off=ls.get('trip-off',[]);                       // people switched off in the filter
+const curScope=()=>{const fs=families();if(fs.length===1)return fs[0].id;return scope==='group'||fam(scope)?scope:'group'};
+const scopeFams=()=>{const s=curScope();return s==='group'?families():[fam(s)]};
+const scopeMembers=()=>{const s=curScope();return s==='group'?party():famMembers(s)};
+const selected=()=>scopeMembers().filter(m=>!off.includes(m.id)).map(m=>m.id);
+const multiFam=()=>families().length>1;
+
+// Who's on a plan, in the family list's order. Plans saved before "who" existed belong to the first family.
+const planWho=p=>Array.isArray(p.who)?party().filter(m=>p.who.includes(m.id)).map(m=>m.id):famMembers(firstFam()).map(m=>m.id);
+const planFams=p=>[...new Set(planWho(p).map(id=>famOf(member(id))))];
+// Key plans are what other families need to see: travel and dining by default, or anything starred.
+const isKey=p=>typeof p.key==='boolean'?p.key:(p.kind==='Travel'||p.kind==='Dining');
+// 'mine' = shown normally; 'other' = another family's key plan, shown compact; null = hidden.
+function vis(p){
+  const sel=selected();
+  if(planWho(p).some(id=>sel.includes(id)))return'mine';
+  const s=curScope();
+  if(s!=='group'&&isKey(p)&&!planFams(p).includes(s)&&planWho(p).length)return'other';
+  return null;
+}
+const dayPlans=d=>S.plans.filter(p=>p.date===d).sort((a,b)=>(a.time||'99')<(b.time||'99')?-1:1);
+const listJoin=(a,w='and')=>a.length<2?a.join(''):a.slice(0,-1).join(', ')+` ${w} `+a[a.length-1];
+function whoLabel(p){
+  const w=planWho(p);if(!w.length)return'No one yet';
+  if(w.length===party().length&&multiFam())return'Everyone';
+  const parts=[];
+  for(const f of families()){
+    const fm=famMembers(f.id).map(m=>m.id), inc=fm.filter(id=>w.includes(id));
+    if(!inc.length)continue;
+    if(inc.length===fm.length)parts.push(multiFam()?f.name:'Everyone');
+    else parts.push(...inc.map(id=>member(id).name));
+  }
+  return listJoin(parts);
+}
+const famLabel=p=>planFams(p).map(fid=>fam(fid)?.name).filter(Boolean).join(' + ');
+
+// Items on the to-do and packing lists belong to a family (older ones to the first family).
+const itemFam=x=>x.family&&fam(x.family)?x.family:firstFam();
+const inScope=x=>curScope()==='group'||itemFam(x)===curScope();
+const newItemFam=personId=>personId&&member(personId)?famOf(member(personId)):(curScope()==='group'?firstFam():curScope());
+
+// Parks and hotels are per family, per day.
+const famPark=(fid,d)=>S.trip.famParks?.[fid]?.[d]||(fid===firstFam()?S.trip.dayParks?.[d]:'')||'';
+const famHotel=(fid,d)=>String(S.trip.famHotels?.[fid]?.[d]||(fid===firstFam()?S.trip.dayHotels?.[d]:'')||fam(fid)?.hotel||'').trim();
 // ---------- trip link ----------
 // Each trip lives at trips/<key> in Firestore and has its own sign-in account, <key>@trips.example.com,
 // whose password is the trip password. firestore.rules only lets that account read or write the trip,
@@ -103,139 +172,6 @@ const currentTab=()=>{const h=location.hash.slice(1);return TABS.some(t=>t[0]===
 window.addEventListener('hashchange',()=>{render();window.scrollTo({top:0})});
 let selDay=ls.get('trip-selday',null);
 let openTodo=null;   // plan whose "add a to-do" form is open
-
-// ---------- booking windows ----------
-function windows(){
-  const t=S.trip;if(!t||!validDate(t.start))return[];
-  const end=validDate(t.end)?t.end:t.start, on=!!t.onsite, out=[];
-  if(resort()==='wdw'){
-    out.push(on
-      ?{date:addDays(t.start,-60),title:'Dining reservations open for your whole stay',note:'Opens at 6:00 AM Eastern. Disney resort guests can book 60 days before check-in, for up to 10 days of the trip. Popular restaurants go in minutes.'}
-      :{date:addDays(t.start,-60),title:'Dining reservations open for day 1',note:`Opens at 6:00 AM Eastern. Each day opens 60 days ahead. The last day opens ${fmtD(addDays(end,-60))}.`});
-    out.push(on
-      ?{date:addDays(t.start,-7),title:'Lightning Lane bookings open for your whole stay',note:'Opens at 7:00 AM Eastern. Resort guests can buy Lightning Lane Multi Pass 7 days before check-in, for up to 14 days of the stay.'}
-      :{date:addDays(t.start,-3),title:'Lightning Lane bookings open for day 1',note:'Opens at 7:00 AM Eastern. Off-site guests can book 3 days before each park day.'});
-  }else{
-    out.push({date:addDays(t.start,-60),title:'Dining reservations open for day 1',note:`Opens at 6:00 AM Pacific. Each day opens 60 days ahead. The last day opens ${fmtD(addDays(end,-60))}.`});
-    out.push({date:t.start,title:'Lightning Lane is bought on the day',note:'At Disneyland, buy Lightning Lane in the app the morning of each park day.'});
-  }
-  out.push({date:addDays(t.start,-1),title:'Check in online and link tickets',note:'Make sure every ticket and reservation is linked to the family in the Disney app.'});
-  return out.sort((a,b)=>a.date<b.date?-1:1);
-}
-function winStatus(d){
-  const n=diff(today(),d), over=S.trip?.end&&today()>S.trip.end;
-  if(over)return'';
-  if(n>7)return`<span class="chip">Opens in ${n} days</span>`;
-  if(n>0)return`<span class="chip warn">Opens in ${plural(n,'day')}</span>`;
-  if(n===0)return`<span class="chip warn">Opens today</span>`;
-  return`<span class="chip good">Open now</span>`;
-}
-const calBox=d=>`<div class="cal"><div class="m">${esc(pd(d).toLocaleDateString(undefined,{month:'short'}))}</div><div class="d">${pd(d).getDate()}</div></div>`;
-
-// ---------- header & tabs ----------
-function renderHeader(){
-  const t=['config','welcome','locked'].includes(S.mode)?null:S.trip;
-  const pill=['config','welcome','locked'].includes(S.mode)?null
-    :!navigator.onLine?['offline','Offline · changes will sync later']
-    :S.saving?['offline','Saving…']
-    :S.stale?['offline','Can’t reach the trip right now']
-    :S.mode==='shared'?['shared','Synced']:['','Connecting…'];
-  let count='';
-  if(t&&validDate(t.start)){
-    const n=diff(today(),t.start), len=tripDays().length, k=diff(t.start,today())+1;
-    if(n>0)count=`<div class="count"><b>${n}</b><span>${n===1?'day':'days'}<br>to go</span></div>`;
-    else if(k<=len)count=`<div class="count"><b>Day ${k}</b><span>of ${len}</span></div>`;
-    else count=`<div class="count"><b>Done</b><span>Welcome home</span></div>`;
-  }
-  const dates=t&&validDate(t.start)?`${fmtD(t.start,{month:'short',day:'numeric'})} – ${fmtD(t.end||t.start,{month:'short',day:'numeric',year:'numeric'})}`:'';
-  $('#head').innerHTML=`<div class="toprow"><div class="tt">
-      <h1 class="trip-name">${t?esc(t.name||'Our Disney trip'):'Family trip planner'}</h1>
-      <div class="trip-sub">${t?esc(dates)+(pill?` · <span class="sync ${pill[0]}"><i></i>${pill[1]}</span>`:''):'Rides, dining and packing for the whole family.'}</div>
-    </div>${count}</div>`;
-  const tab=currentTab();
-  $('#tabs').innerHTML=S.trip?TABS.map(([k,n,ic])=>`<a href="#${k}"${k===tab?' aria-current="page"':''}>${ICON(ic)}<span>${n}</span></a>`).join(''):'';
-  $('nav.tabs').hidden=!S.trip||['config','welcome','locked'].includes(S.mode);
-}
-
-// ---------- views ----------
-function setupView(){
-  if(S.mode==='config')return`<div class="panel welcome"><h2>Finish connecting the database</h2>
-    <p class="muted">This copy of the planner doesn’t have its Firebase settings yet, so it can’t save anything.</p>
-    <ol class="steps"><li>Create a Firebase project and a Firestore database.</li><li>Paste the web app config into <code>firebase-config.js</code>.</li><li>Publish the rules from <code>firestore.rules</code>.</li></ol>
-    <p class="fine">The README walks through each step.</p></div>`;
-  if(S.mode==='welcome'){
-    const last=ls.get('trip-last',null);
-    return`<div class="panel welcome"><h2>Family trip planner</h2>
-      <p class="muted">Open the trip link you were sent, then enter the trip password. You only need to do this once on each device.</p>
-      ${last&&KEY_RE.test(last)?`<div><a class="btn" href="?t=${esc(last)}">Open my trip</a></div>`:''}
-      <p class="fine">Don’t have the link or password? Ask the trip organizer.</p></div>`;
-  }
-  if(S.mode==='locked')return`<div class="panel welcome"><h2>Enter the trip password</h2>
-    <p class="muted">This trip is password protected. Ask whoever sent you the link for the password. You only need to enter it once on this device.</p>
-    <form class="form" data-form="unlock" style="grid-template-columns:minmax(0,1fr) auto">
-      <input type="password" id="u-pw" autocomplete="current-password" aria-label="Trip password" placeholder="Trip password" required>
-      <button class="btn" type="submit"${S.busy?' disabled':''}>${S.busy?'Checking…':'Open trip'}</button>
-    </form>${S.authErr?`<div class="chip bad" role="alert" style="white-space:normal">${esc(S.authErr)}</div>`:''}</div>`;
-  if(S.mode==='loading')return`<div class="panel setup"><p class="muted">Loading your trip…</p></div>`;
-  if(S.stale)return`<div class="panel setup"><h2>Can’t reach the shared trip yet</h2><p class="muted">The plan will appear here as soon as the connection comes back.</p></div>`;
-  return`<div class="panel setup">
-    <div><h2>Start your trip</h2><p class="muted small">After this, share the trip link from the Overview tab. Everyone with it sees the same plan and can add to it.</p></div>
-    <form class="form" data-form="setup">
-      <label class="field wide"><span>Trip name</span><input type="text" id="s-name" placeholder="Spring break 2027" required></label>
-      <label class="field"><span>Resort</span><select id="s-resort"><option value="wdw">Walt Disney World</option><option value="dl">Disneyland Resort</option></select></label>
-      <label class="field"><span>Hotel</span><input type="text" id="s-hotel" placeholder="Where you’re staying"></label>
-      <label class="field"><span>Arrive</span><input type="date" id="s-start" required></label>
-      <label class="field"><span>Leave</span><input type="date" id="s-end" required></label>
-      <label class="check wide"><input type="checkbox" id="s-onsite">Staying at a Disney-owned hotel (earlier booking windows)</label>
-      <label class="field wide"><span>Who’s going (one name per line)</span><textarea id="s-party" rows="4" placeholder="Mom&#10;Dad&#10;Ava"></textarea></label>
-      <div class="wide" style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" type="submit">Start planning</button></div>
-    </form></div>`;
-}
-
-function overviewView(){
-  const t=S.trip, days=tripDays(), wins=windows();
-  const openTasks=S.tasks.filter(x=>!x.done).sort((a,b)=>(a.due||'9')<(b.due||'9')?-1:1).slice(0,4);
-  return`${filterBar()}<div class="grid">
-    <section class="panel span2"><div class="panel-head"><h2>Trip at a glance</h2><a href="#week" class="link">Whole trip</a></div>
-      ${days.length?`<div class="glance">${days.map((d,i)=>{const n=dayPlans(d).filter(shown).length,pk=t.dayParks?.[d];return`<button class="gday" data-act="goday" data-day="${d}"><span class="label">Day ${i+1} · ${esc(fmtD(d,{weekday:'short'}))}</span><b class="num">${esc(fmtD(d,{month:'short',day:'numeric'}))}</b>${pk?parkChip(pk):'<span class="chip">No park yet</span>'}${hotelNote(d)}<span class="small muted">${n?plural(n,'plan'):'Nothing planned'}</span></button>`}).join('')}</div>`:'<div class="empty">Add your travel dates under Trip details.</div>'}
-    </section>
-    <section class="panel"><div class="panel-head"><h2>Up next</h2><a href="#lists" class="link">All to-dos</a></div>
-      <div class="list">${openTasks.map(taskRow).join('')||'<div class="empty">No open to-dos. Add bookings and errands on the Lists tab.</div>'}</div>
-    </section>
-    <section class="panel"><div class="panel-head"><h2>Booking windows</h2><span class="fine">Based on your dates</span></div>
-      <div class="list">${wins.map(w=>`<div class="win">${calBox(w.date)}<div class="body" style="display:flex;flex-direction:column;gap:4px;min-width:0"><div class="title" style="font-weight:600">${esc(w.title)}</div><div class="small muted">${esc(fmtD(w.date,{weekday:'long',month:'long',day:'numeric'}))}. ${esc(w.note)}</div><div>${winStatus(w.date)}</div></div></div>`).join('')}</div>
-      <p class="fine">Disney changes these rules from time to time. Confirm in the Disney app before the day.</p>
-    </section>
-    <section class="panel"><div class="panel-head"><h2>Who’s going</h2><span class="fine">Used for the person filter</span></div>
-      <div class="names">${party().map(p=>`<div class="name-row"><span class="av" style="background:${mcol(p.id)}">${initial(p.name)}</span>
-        <input type="text" value="${esc(p.name)}" aria-label="Name" data-change="pname" data-id="${p.id}">
-        ${delBtn('pdel',p.id,'',p.name)}</div>`).join('')||'<div class="empty">Add everyone who’s coming.</div>'}</div>
-      <form class="form inline" data-form="padd">
-        <input type="text" id="p-name" data-keep placeholder="Add a name" aria-label="New traveler name" required>
-        <button class="btn" type="submit">Add</button></form>
-    </section>
-    <section class="panel"><details id="trip-details"${openAttr('trip-details',!t.name)}><summary>Trip details</summary>
-      <form class="form" data-form="tripedit" style="margin-top:14px">
-        <label class="field wide"><span>Trip name</span><input type="text" id="t-name" data-keep value="${esc(t.name)}"></label>
-        <label class="field"><span>Resort</span><select id="t-resort" data-keep><option value="wdw"${resort()==='wdw'?' selected':''}>Walt Disney World</option><option value="dl"${resort()==='dl'?' selected':''}>Disneyland Resort</option></select></label>
-        <label class="field"><span>Hotel</span><input type="text" id="t-hotel" data-keep value="${esc(t.hotel)}"></label>
-        <label class="field"><span>Arrive</span><input type="date" id="t-start" data-keep value="${esc(t.start)}"></label>
-        <label class="field"><span>Leave</span><input type="date" id="t-end" data-keep value="${esc(t.end)}"></label>
-        <label class="check wide"><input type="checkbox" id="t-onsite" data-keep${t.onsite?' checked':''}>Staying at a Disney-owned hotel</label>
-        <div class="wide"><button class="btn" type="submit">Save details</button></div>
-      </form></details></section>
-    <section class="panel"><div class="panel-head"><h2>Share this trip</h2><span class="fine">Link plus password</span></div>
-      <p class="small muted" style="margin:0">Send the link to your family and give them the password a different way, like saying it out loud. Only the trip organizer can change the password, in the Firebase console.</p>
-      <div class="sharebox"><input type="text" id="share-url" readonly value="${esc(shareUrl())}" aria-label="Trip link"><button class="btn small" data-act="copylink">Copy link</button>${navigator.share?'<button class="btn ghost small" data-act="sharelink">Share…</button>':''}</div>
-      <div><button class="btn ghost small" data-act="signout">Sign out of this trip on this device</button></div>
-    </section>
-  </div>`;
-}
-
-function whoChips(ids,act,itemId){
-  return party().map(p=>`<button type="button" class="chip-btn" style="--mc:${mcol(p.id)}" aria-pressed="${ids.includes(p.id)}" data-act="${act}" data-id="${itemId}" data-who="${p.id}"><span class="av">${initial(p.name)}</span>${esc(p.name)}</button>`).join('');
-}
-
 // ---------- small UI helpers ----------
 // Live updates re-render the page, so remember which <details> boxes the person opened or closed.
 const openBoxes=new Set(), closedBoxes=new Set();
@@ -252,6 +188,96 @@ function confirmTap(b,key){
   return false;
 }
 
+// ---------- booking windows (per family: they depend on arrival date and hotel) ----------
+function windows(f){
+  if(!f||!validDate(f.arrive))return[];
+  const a=f.arrive, z=validDate(f.depart)?f.depart:a, on=!!f.onsite, out=[];
+  if(resort()==='wdw'){
+    out.push(on
+      ?{date:addDays(a,-60),title:'Dining reservations open for the whole stay',note:'Opens at 6:00 AM Eastern. Disney resort guests can book 60 days before check-in, for up to 10 days of the trip. Popular restaurants go in minutes.'}
+      :{date:addDays(a,-60),title:'Dining reservations open for day 1',note:`Opens at 6:00 AM Eastern. Each day opens 60 days ahead. The last day opens ${fmtD(addDays(z,-60))}.`});
+    out.push(on
+      ?{date:addDays(a,-7),title:'Lightning Lane bookings open for the whole stay',note:'Opens at 7:00 AM Eastern. Resort guests can buy Lightning Lane Multi Pass 7 days before check-in, for up to 14 days of the stay.'}
+      :{date:addDays(a,-3),title:'Lightning Lane bookings open for day 1',note:'Opens at 7:00 AM Eastern. Off-site guests can book 3 days before each park day.'});
+  }else{
+    out.push({date:addDays(a,-60),title:'Dining reservations open for day 1',note:`Opens at 6:00 AM Pacific. Each day opens 60 days ahead. The last day opens ${fmtD(addDays(z,-60))}.`});
+    out.push({date:a,title:'Lightning Lane is bought on the day',note:'At Disneyland, buy Lightning Lane in the app the morning of each park day.'});
+  }
+  out.push({date:addDays(a,-1),title:'Check in online and link tickets',note:'Make sure every ticket and reservation is linked to the family in the Disney app.'});
+  return out.sort((x,y)=>x.date<y.date?-1:1);
+}
+function winStatus(d,f){
+  const n=diff(today(),d);
+  if(validDate(f?.depart)&&today()>f.depart)return'';
+  if(n>7)return`<span class="chip">Opens in ${n} days</span>`;
+  if(n>0)return`<span class="chip warn">Opens in ${plural(n,'day')}</span>`;
+  if(n===0)return`<span class="chip warn">Opens today</span>`;
+  return`<span class="chip good">Open now</span>`;
+}
+const calBox=d=>`<div class="cal"><div class="m">${esc(pd(d).toLocaleDateString(undefined,{month:'short'}))}</div><div class="d">${pd(d).getDate()}</div></div>`;
+
+// ---------- header & tabs ----------
+function renderHeader(){
+  const gate=['config','welcome','locked'].includes(S.mode), t=gate?null:S.trip;
+  const pill=gate?null
+    :!navigator.onLine?['offline','Offline · changes will sync later']
+    :S.saving?['offline','Saving…']
+    :S.stale?['offline','Can’t reach the trip right now']
+    :S.mode==='shared'?['shared','Synced']:['','Connecting…'];
+  let count='', dates='';
+  if(t){
+    const s=curScope(), f=s==='group'?null:fam(s), r=tripRange();
+    const a=f&&validDate(f.arrive)?f.arrive:r?.[0], z=f&&validDate(f.depart)?f.depart:r?.[1];
+    if(a){
+      const n=diff(today(),a), len=diff(a,z)+1, k=diff(a,today())+1;
+      count=n>0?`<div class="count"><b>${n}</b><span>${n===1?'day':'days'}<br>to go</span></div>`
+        :k<=len?`<div class="count"><b>Day ${k}</b><span>of ${len}</span></div>`
+        :`<div class="count"><b>Done</b><span>Welcome<br>home</span></div>`;
+      dates=`${fmtD(a,{month:'short',day:'numeric'})} – ${fmtD(z,{month:'short',day:'numeric',year:'numeric'})}`;
+    }
+  }
+  $('#head').innerHTML=`<div class="toprow"><div class="tt">
+      <h1 class="trip-name">${t?esc(t.name||'Our Disney trip'):'Family trip planner'}</h1>
+      <div class="trip-sub">${t?esc(dates)+(pill?`${dates?' · ':''}<span class="sync ${pill[0]}"><i></i>${pill[1]}</span>`:''):'Rides, dining and packing for the whole family.'}</div>
+    </div>${count}</div>`;
+  const tab=currentTab();
+  $('#tabs').innerHTML=S.trip?TABS.map(([k,n,ic])=>`<a href="#${k}"${k===tab?' aria-current="page"':''}>${ICON(ic)}<span>${n}</span></a>`).join(''):'';
+  $('nav.tabs').hidden=!S.trip||gate;
+}
+
+// ---------- scope bar: Group / families, then people ----------
+function scopeBar(){
+  const fs=families(), s=curScope(), ms=scopeMembers(), sel=selected();
+  const seg=fs.length>1?`<div class="scopebar" role="tablist" aria-label="Whose plans">${[['group','Group'],...fs.map(f=>[f.id,f.name])].map(([k,n])=>`<button type="button" class="seg" role="tab" aria-selected="${s===k}" data-act="scope" data-who="${k}">${esc(n)}</button>`).join('')}</div>`:'';
+  if(!ms.length)return seg;
+  const allOn=sel.length===ms.length, offNames=ms.filter(m=>!sel.includes(m.id)).map(m=>m.name);
+  return`${seg}<div class="filterbar" role="group" aria-label="People shown">
+    ${ms.map(m=>`<button type="button" class="chip-btn" style="--mc:${mcol(m.id)}" aria-pressed="${sel.includes(m.id)}" data-act="person" data-who="${m.id}"><span class="av">${initial(m.name)}</span>${esc(m.name)}</button>`).join('')}
+    ${allOn?'':'<button type="button" class="chip-btn" data-act="allon">Show everyone</button>'}
+  </div>${allOn?'':`<div class="filternote small muted">Hiding plans that only include ${esc(listJoin(offNames,'or'))}</div>`}`;
+}
+
+// ---------- parks and hotels shown for the families in scope ----------
+const HOTEL_ICON='<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M3 19V7M3 15h18v4M21 15v-2.5A2.5 2.5 0 0 0 18.5 10H11v5M7 12.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function hotelText(fid,d){
+  const f=fam(fid);if(!f)return'';
+  if(validDate(f.arrive)&&d<f.arrive||validDate(f.depart)&&d>f.depart)return'';
+  const first=d===f.arrive, last=d===f.depart&&!first;
+  const h=last?famHotel(fid,addDays(d,-1)):famHotel(fid,d);if(!h)return'';
+  const prev=first||last?'':famHotel(fid,addDays(d,-1));
+  return last?`Check out of ${h}`:first?`Check in at ${h}`:prev&&prev!==h?`Move to ${h}`:`Staying at ${h}`;
+}
+function hotelNotes(d){
+  const fs=scopeFams(), many=fs.length>1;
+  return fs.map(f=>{const t=hotelText(f.id,d);return t?`<span class="hotel">${HOTEL_ICON}<span>${many?`<b>${esc(shortName(f.name))}:</b> `:''}${esc(t)}</span></span>`:''}).join('');
+}
+const parkChip=(c,prefix='')=>c&&parkName(c)?`<span class="chip park" style="--pc:var(--p-${PCOLOR[c]||'rest'})">${prefix?esc(prefix)+' · ':''}${esc(parkName(c))}</span>`:'';
+function parkChips(d){
+  const fs=scopeFams(), many=fs.length>1;
+  const out=fs.map(f=>parkChip(famPark(f.id,d),many?shortName(f.name):'')).filter(Boolean).join('');
+  return out||'<span class="chip">No park yet</span>';
+}
+
 // ---------- calendar export ----------
 // Times are park-local, so events carry the resort's time zone. Re-adding an event updates it (same UID).
 const TZ=()=>resort()==='dl'?'America/Los_Angeles':'America/New_York';
@@ -263,7 +289,7 @@ function evTimes(p){
   return{allDay:false,start:stamp(p.date,h*60+m),end:endMin>=1440?stamp(addDays(p.date,1),endMin-1440):stamp(p.date,endMin)};
 }
 const evDetails=p=>[p.notes,p.conf?`Confirmation: ${p.conf}`:'',`Who: ${whoLabel(p)}`,S.trip.name].filter(Boolean).join('\n');
-const evPlace=p=>parkName(S.trip.dayParks?.[p.date]||'');
+const evPlace=p=>parkName(famPark(planFams(p)[0]||firstFam(),p.date));
 const icsEsc=v=>String(v).replace(/\\/g,'\\\\').replace(/\r?\n/g,'\\n').replace(/([,;])/g,'\\$1');
 function icsFor(plans){
   const now=new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d+/,'');
@@ -293,35 +319,10 @@ function gcalUrl(p){
 const calMenu=p=>`<details class="calmenu" id="cal-${p.id}"${openAttr('cal-'+p.id,false)}><summary class="btn ghost small">Add to calendar</summary>
   <div class="calopts"><button type="button" class="btn ghost small" data-act="ics" data-id="${p.id}">iPhone / Apple Calendar</button><a class="btn ghost small" href="${esc(gcalUrl(p))}" target="_blank" rel="noopener">Google Calendar</a></div></details>`;
 
-// ---------- people on plans, the person filter, and hotels ----------
-// Who's on a plan, always in the family list's order. Plans saved before "who" existed include everyone.
-const planWho=p=>Array.isArray(p.who)?party().filter(m=>p.who.includes(m.id)).map(m=>m.id):party().map(m=>m.id);
-let filt=ls.get('trip-filter',[]);
-const activeFilt=()=>(Array.isArray(filt)?filt:[]).filter(id=>member(id));
-const shown=p=>{const f=activeFilt();return !f.length||planWho(p).some(id=>f.includes(id))};
-const dayPlans=d=>S.plans.filter(p=>p.date===d).sort((a,b)=>(a.time||'99')<(b.time||'99')?-1:1);
-const listJoin=(a,w='and')=>a.length<2?a.join(''):a.slice(0,-1).join(', ')+` ${w} `+a[a.length-1];
-const whoLabel=p=>{const w=planWho(p);return !w.length?'No one yet':w.length===party().length?'Everyone':listJoin(w.map(id=>member(id).name))};
-function filterBar(){
-  if(!party().length)return'';
-  const f=activeFilt();
-  return`<div class="filterbar" role="group" aria-label="Show plans for"><span class="label">Show plans for</span>
-    <button type="button" class="chip-btn" aria-pressed="${!f.length}" data-act="filt" data-who="">Everyone</button>
-    ${party().map(p=>`<button type="button" class="chip-btn" style="--mc:${mcol(p.id)}" aria-pressed="${f.includes(p.id)}" data-act="filt" data-who="${p.id}"><span class="av">${initial(p.name)}</span>${esc(p.name)}</button>`).join('')}
-    </div>${f.length?`<div class="filternote small muted">Only plans that include ${esc(listJoin(f.map(id=>member(id).name),'or'))}</div>`:''}`;
-}
-const HOTEL_ICON='<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M3 19V7M3 15h18v4M21 15v-2.5A2.5 2.5 0 0 0 18.5 10H11v5M7 12.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const hotelFor=d=>String(S.trip.dayHotels?.[d]||S.trip.hotel||'').trim();
-function hotelNote(d){
-  const t=S.trip, first=d===t.start, last=d===t.end&&!first;
-  const h=last?hotelFor(addDays(d,-1)):hotelFor(d);if(!h)return'';
-  const prev=first||last?'':hotelFor(addDays(d,-1));
-  const txt=last?`Check out of ${h}`:first?`Check in at ${h}`:prev&&prev!==h?`Move to ${h}`:`Staying at ${h}`;
-  return`<span class="hotel">${HOTEL_ICON}<span>${esc(txt)}</span></span>`;
-}
+// ---------- plan rows ----------
 function peopleEditor(p){
   if(!party().length)return'';
-  const w=planWho(p), out=party().filter(m=>!w.includes(m.id));
+  const w=planWho(p), pool=curScope()==='group'?party():scopeMembers(), out=pool.filter(m=>!w.includes(m.id));
   return`<div class="chips">${w.map(id=>{const m=member(id);return`<span class="person" style="--mc:${mcol(id)}"><span class="av">${initial(m.name)}</span>${esc(m.name)}<button type="button" class="px" aria-label="Remove ${esc(m.name)} from ${esc(p.title)}" title="Remove ${esc(m.name)}" data-act="unwho" data-id="${p.id}" data-who="${id}">×</button></span>`}).join('')||'<span class="small muted">No one yet</span>'}
     ${out.length?`<select class="addwho" aria-label="Add someone to ${esc(p.title)}" data-change="addwho" data-id="${p.id}"><option value="">+ Add person</option>${out.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select>`:''}</div>`;
 }
@@ -330,93 +331,211 @@ function planTodos(p){
     return`<span class="chip todo ${t.done?'good':late?'bad':'warn'}">${t.done?'Done':'To-do'}: ${esc(t.text)}${m?' · '+esc(m.name):''}${t.due?' · due '+esc(fmtD(t.due,{month:'short',day:'numeric'})):''}</span>`}).join('');
 }
 function todoForm(p){
+  const owners=planWho(p).length?planWho(p).map(member):scopeMembers();
   return`<form class="form todo-form" data-form="plantodo" data-id="${p.id}">
     <label class="field wide"><span>To-do</span><input type="text" id="pt-text" data-keep value="${esc((p.kind==='Dining'?'Book ':'')+p.title)}" required></label>
     <label class="field"><span>Due date</span><input type="date" id="pt-due" data-keep required></label>
-    <label class="field"><span>Owner</span><select id="pt-owner" data-keep required><option value="">Choose…</option>${party().map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select></label>
+    <label class="field"><span>Owner</span><select id="pt-owner" data-keep required><option value="">Choose…</option>${owners.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select></label>
     <div class="wide" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="submit">Create to-do</button><button class="btn ghost" type="button" data-act="todoclose">Cancel</button></div></form>`;
 }
+const keyBtn=p=>multiFam()?`<button type="button" class="keybtn" aria-pressed="${isKey(p)}" data-act="key" data-id="${p.id}" title="Key plans show up for the other families">${isKey(p)?'★ Key for group':'☆ Mark as key'}</button>`:'';
 function planRow(p){
   const todos=planTodos(p);
   return`<div class="row plan"><div class="time">${esc(fmtT(p.time))}</div><div class="body">
     <div class="title">${esc(p.title)}</div>
-    <div class="meta"><span class="chip">${esc(p.kind||'Other')}</span>${p.conf?`<span>Confirmation <b class="num" style="color:var(--ink)">${esc(p.conf)}</b></span>`:''}${p.notes?`<span>${esc(p.notes)}</span>`:''}</div>
+    <div class="meta"><span class="chip">${esc(p.kind||'Other')}</span>${keyBtn(p)}${p.conf?`<span>Confirmation <b class="num" style="color:var(--ink)">${esc(p.conf)}</b></span>`:''}${p.notes?`<span>${esc(p.notes)}</span>`:''}</div>
     ${peopleEditor(p)}
     ${todos?`<div class="chips">${todos}</div>`:''}
     ${openTodo===p.id?todoForm(p):`<div class="row-actions"><button class="btn ghost small" type="button" data-act="todoopen" data-id="${p.id}">Add to-do</button>${calMenu(p)}</div>`}
   </div>${delBtn('del',p.id,'plans',p.title)}</div>`;
 }
+// Another family's key plan: the facts only, so it doesn't crowd your own plans.
+function otherRow(p){
+  return`<div class="row plan other"><div class="time">${esc(fmtT(p.time))}</div><div class="body">
+    <div class="title">${esc(p.title)}</div>
+    <div class="meta"><span class="chip fam">${esc(famLabel(p))}</span><span class="chip">${esc(p.kind||'Other')}</span>${p.conf?`<span>Confirmation <b class="num" style="color:var(--ink)">${esc(p.conf)}</b></span>`:''}${p.notes?`<span>${esc(p.notes)}</span>`:''}</div>
+    <div class="small muted">${esc(whoLabel(p))}</div>
+    <div class="row-actions">${calMenu(p)}</div>
+  </div></div>`;
+}
+const anyRow=p=>vis(p)==='other'?otherRow(p):planRow(p);
+const visiblePlans=d=>dayPlans(d).filter(p=>vis(p));
+
+// ---------- views ----------
+function setupView(){
+  if(S.mode==='config')return`<div class="panel welcome"><h2>Finish connecting the database</h2>
+    <p class="muted">This copy of the planner doesn’t have its Firebase settings yet, so it can’t save anything.</p>
+    <p class="fine">The README walks through each step.</p></div>`;
+  if(S.mode==='welcome'){
+    const last=ls.get('trip-last',null);
+    return`<div class="panel welcome"><h2>Family trip planner</h2>
+      <p class="muted">Open the trip link you were sent, then enter the trip password. You only need to do this once on each device.</p>
+      ${last&&KEY_RE.test(last)?`<div><a class="btn" href="?t=${esc(last)}">Open my trip</a></div>`:''}
+      <p class="fine">Don’t have the link or password? Ask the trip organizer.</p></div>`;
+  }
+  if(S.mode==='locked')return`<div class="panel welcome"><h2>Enter the trip password</h2>
+    <p class="muted">This trip is password protected. Ask whoever sent you the link for the password. You only need to enter it once on this device.</p>
+    <form class="form inline" data-form="unlock">
+      <input type="password" id="u-pw" autocomplete="current-password" aria-label="Trip password" placeholder="Trip password" required>
+      <button class="btn" type="submit"${S.busy?' disabled':''}>${S.busy?'Checking…':'Open trip'}</button>
+    </form>${S.authErr?`<div class="chip bad" role="alert" style="white-space:normal">${esc(S.authErr)}</div>`:''}</div>`;
+  if(S.mode==='loading')return`<div class="panel setup"><p class="muted">Loading your trip…</p></div>`;
+  if(S.stale)return`<div class="panel setup"><h2>Can’t reach the shared trip yet</h2><p class="muted">The plan will appear here as soon as the connection comes back.</p></div>`;
+  return`<div class="panel setup">
+    <div><h2>Start your trip</h2><p class="muted small">You can add more families later from Home.</p></div>
+    <form class="form" data-form="setup">
+      <label class="field wide"><span>Trip name</span><input type="text" id="s-name" placeholder="Spring break 2027" required></label>
+      <label class="field wide"><span>Your family’s name</span><input type="text" id="s-fam" placeholder="Becker Family" required></label>
+      <label class="field"><span>Resort</span><select id="s-resort"><option value="wdw">Walt Disney World</option><option value="dl">Disneyland Resort</option></select></label>
+      <label class="field"><span>Hotel</span><input type="text" id="s-hotel" placeholder="Where you’re staying"></label>
+      <label class="field"><span>Arrive</span><input type="date" id="s-start" required></label>
+      <label class="field"><span>Leave</span><input type="date" id="s-end" required></label>
+      <label class="check wide"><input type="checkbox" id="s-onsite">Staying at a Disney-owned hotel</label>
+      <label class="field wide"><span>Who’s going (one name per line)</span><textarea id="s-party" rows="4" placeholder="Mom&#10;Dad&#10;Ava"></textarea></label>
+      <div class="wide"><button class="btn" type="submit">Start planning</button></div>
+    </form></div>`;
+}
+
+// The at-a-glance card each family sees for every family: dates, hotel, people, travel and key plans.
+function famCard(f){
+  const ms=famMembers(f.id), mine=S.plans.filter(p=>planFams(p).includes(f.id)).sort((a,b)=>(a.date+(a.time||'99'))<(b.date+(b.time||'99'))?-1:1);
+  const travel=mine.filter(p=>p.kind==='Travel'), key=mine.filter(p=>isKey(p)&&p.kind!=='Travel');
+  const line=p=>`<li><span class="wt">${esc(fmtD(p.date,{weekday:'short',month:'short',day:'numeric'}))}${p.time?' · '+esc(fmtT(p.time)):''}</span><span class="wtitle">${esc(p.title)}${p.conf?` <span class="muted">· #${esc(p.conf)}</span>`:''}</span></li>`;
+  const sel=f.id;
+  return`<div class="famcard">
+    <div class="famhead"><h3>${esc(f.name)}</h3><span class="small muted">${plural(ms.length,'person').replace('persons','people')}</span></div>
+    <div class="small">${validDate(f.arrive)?esc(fmtD(f.arrive,{month:'short',day:'numeric'}))+' – '+esc(fmtD(f.depart||f.arrive,{month:'short',day:'numeric'})):'Dates not set'}${f.hotel?` · ${esc(f.hotel)}`:''}</div>
+    ${ms.length?`<div class="small muted">${esc(ms.map(m=>m.name).join(', '))}</div>`:''}
+    ${travel.length?`<div class="label">Travel</div><ul class="flist">${travel.map(line).join('')}</ul>`:''}
+    ${key.length?`<div class="label">Key plans</div><ul class="flist">${key.slice(0,6).map(line).join('')}</ul>${key.length>6?`<div class="fine">and ${key.length-6} more</div>`:''}`:''}
+    <details id="famedit-${sel}"${openAttr('famedit-'+sel,!ms.length)}><summary class="small">Edit ${esc(shortName(f.name))} family</summary>
+      <form class="form" data-form="famedit" data-fam="${sel}" style="margin-top:10px">
+        <label class="field wide"><span>Family name</span><input type="text" id="fe-name-${sel}" data-keep value="${esc(f.name)}" required></label>
+        <label class="field wide"><span>Hotel</span><input type="text" id="fe-hotel-${sel}" data-keep value="${esc(f.hotel||'')}" placeholder="Where they’re staying"></label>
+        <label class="field"><span>Arrive</span><input type="date" id="fe-arrive-${sel}" data-keep value="${esc(f.arrive||'')}"></label>
+        <label class="field"><span>Leave</span><input type="date" id="fe-depart-${sel}" data-keep value="${esc(f.depart||'')}"></label>
+        <label class="check wide"><input type="checkbox" id="fe-onsite-${sel}" data-keep${f.onsite?' checked':''}>Staying at a Disney-owned hotel</label>
+        <div class="wide"><button class="btn" type="submit">Save</button></div>
+      </form>
+      <div class="names" style="margin-top:12px">${ms.map(m=>`<div class="name-row"><span class="av" style="background:${mcol(m.id)}">${initial(m.name)}</span>
+        <input type="text" value="${esc(m.name)}" aria-label="Name" data-change="pname" data-id="${m.id}">${delBtn('pdel',m.id,'',m.name)}</div>`).join('')}</div>
+      <form class="form inline" data-form="padd" data-fam="${sel}" style="margin-top:8px">
+        <input type="text" id="p-name-${sel}" data-keep placeholder="Add a person" aria-label="Add a person to ${esc(f.name)}" required>
+        <button class="btn" type="submit">Add</button></form>
+      ${!ms.length&&families().length>1?`<div style="margin-top:8px">${delBtn('famdel',sel,'',f.name).replace('class="x"','class="x wide"').replace('>×<','>Remove this family<')}</div>`:''}
+    </details>
+  </div>`;
+}
+
+function overviewView(){
+  const t=S.trip, days=tripDays(), s=curScope();
+  const openTasks=S.tasks.filter(x=>!x.done&&inScope(x)).sort((a,b)=>(a.due||'9')<(b.due||'9')?-1:1).slice(0,4);
+  const famsPanel=`<section class="panel"><div class="panel-head"><h2>${multiFam()?'Families':'Your family'}</h2><span class="fine">${multiFam()?'Everyone’s dates, hotels and key plans':'Dates, hotel and people'}</span></div>
+      <div class="famgrid">${(s==='group'?families():[fam(s),...families().filter(f=>f.id!==s)]).map(famCard).join('')}</div>
+      <details id="famadd"${openAttr('famadd',false)}><summary class="small">Add another family</summary>
+        <form class="form inline" data-form="famadd" style="margin-top:8px"><input type="text" id="fa-name" data-keep placeholder="Logothetis Family" aria-label="Family name" required><button class="btn" type="submit">Add</button></form>
+      </details></section>`;
+  const glance=`<section class="panel span2"><div class="panel-head"><h2>Trip at a glance</h2><a href="#week" class="link">Whole trip</a></div>
+      ${days.length?`<div class="glance">${days.map((d,i)=>{const n=visiblePlans(d).length;return`<button class="gday" data-act="goday" data-day="${d}"><span class="label">Day ${i+1} · ${esc(fmtD(d,{weekday:'short'}))}</span><b class="num">${esc(fmtD(d,{month:'short',day:'numeric'}))}</b><span class="chips">${parkChips(d)}</span>${hotelNotes(d)}<span class="small muted">${n?plural(n,'plan'):'Nothing planned'}</span></button>`}).join('')}</div>`:'<div class="empty">Add arrival and leave dates under Families.</div>'}
+    </section>`;
+  const wins=`<section class="panel"><div class="panel-head"><h2>Booking windows</h2><span class="fine">Based on each family’s dates</span></div>
+      ${scopeFams().map(f=>`${scopeFams().length>1?`<div class="label">${esc(f.name)}</div>`:''}<div class="list">${windows(f).map(w=>`<div class="win">${calBox(w.date)}<div class="body" style="display:flex;flex-direction:column;gap:4px;min-width:0"><div class="title" style="font-weight:600">${esc(w.title)}</div><div class="small muted">${esc(fmtD(w.date,{weekday:'long',month:'long',day:'numeric'}))}. ${esc(w.note)}</div><div>${winStatus(w.date,f)}</div></div></div>`).join('')||'<div class="empty">Add this family’s arrival date to see booking windows.</div>'}</div>`).join('')}
+      <p class="fine">Disney changes these rules from time to time. Confirm in the Disney app before the day.</p>
+    </section>`;
+  const upnext=`<section class="panel"><div class="panel-head"><h2>Up next</h2><a href="#lists" class="link">All to-dos</a></div>
+      <div class="list">${openTasks.map(taskRow).join('')||'<div class="empty">No open to-dos. Add bookings and errands on the Lists tab.</div>'}</div>
+    </section>`;
+  const details=`<section class="panel"><details id="trip-details"${openAttr('trip-details',false)}><summary>Trip name and resort</summary>
+      <form class="form" data-form="tripedit" style="margin-top:14px">
+        <label class="field wide"><span>Trip name</span><input type="text" id="t-name" data-keep value="${esc(t.name)}"></label>
+        <label class="field wide"><span>Resort</span><select id="t-resort" data-keep><option value="wdw"${resort()==='wdw'?' selected':''}>Walt Disney World</option><option value="dl"${resort()==='dl'?' selected':''}>Disneyland Resort</option></select></label>
+        <div class="wide"><button class="btn" type="submit">Save</button></div>
+      </form></details></section>`;
+  const share=`<section class="panel"><div class="panel-head"><h2>Share this trip</h2><span class="fine">Link plus password</span></div>
+      <p class="small muted" style="margin:0">Send the link and give the password a different way, like saying it out loud. Each family picks its name at the top once on each phone.</p>
+      <div class="sharebox"><input type="text" id="share-url" readonly value="${esc(shareUrl())}" aria-label="Trip link"><button class="btn small" data-act="copylink">Copy link</button>${navigator.share?'<button class="btn ghost small" data-act="sharelink">Share…</button>':''}</div>
+      <div><button class="btn ghost small" data-act="signout">Sign out of this trip on this device</button></div>
+    </section>`;
+  return`${scopeBar()}<div class="grid">${s==='group'&&multiFam()?famsPanel+glance:glance+famsPanel}${upnext}${wins}${details}${share}</div>`;
+}
 
 function weekView(){
   const days=tripDays();
-  if(!days.length)return`<div class="panel"><p class="muted">Add your travel dates in Trip details on the Overview tab to see the whole trip.</p></div>`;
-  const allShown=days.flatMap(d=>dayPlans(d).filter(shown));
-  return`${filterBar()}<div class="weekbar"><span class="small muted">${plural(allShown.length,'plan')}${activeFilt().length?' for the people selected':''}</span><button class="btn small" data-act="icsall"${allShown.length?'':' disabled'}>Add all to calendar</button></div><div class="week">${days.map((d,i)=>{
-    const pk=S.trip.dayParks?.[d], all=dayPlans(d), ps=all.filter(shown);
+  if(!days.length)return`${scopeBar()}<div class="panel"><p class="muted">Add arrival and leave dates under Families on Home to see the whole trip.</p></div>`;
+  const allShown=days.flatMap(visiblePlans);
+  return`${scopeBar()}<div class="weekbar"><span class="small muted">${plural(allShown.length,'plan')}</span><button class="btn small" data-act="icsall"${allShown.length?'':' disabled'}>Add all to calendar</button></div><div class="week">${days.map((d,i)=>{
+    const all=dayPlans(d), ps=visiblePlans(d);
     return`<section class="wday${d===today()?' today':''}">
       <button class="wday-head" data-act="goday" data-day="${d}" aria-label="Open ${esc(fmtD(d,{weekday:'long',month:'long',day:'numeric'}))}"><span class="label">Day ${i+1} · ${esc(fmtD(d,{weekday:'long'}))}</span><b>${esc(fmtD(d,{month:'long',day:'numeric'}))}</b></button>
-      <div class="chips">${pk?parkChip(pk):'<span class="chip">No park yet</span>'}</div>
-      ${hotelNote(d)}
-      ${ps.length?`<ol class="wlist">${ps.map(p=>`<li><span class="wt">${esc(p.time?fmtT(p.time):'Any time')}</span><span><span class="wtitle">${esc(p.title)}</span><span class="wwho">${esc(whoLabel(p))}</span></span></li>`).join('')}</ol>`:`<div class="empty">${all.length?'Nothing for the people selected':'Nothing planned yet'}</div>`}
+      <div class="chips">${parkChips(d)}</div>
+      ${hotelNotes(d)}
+      ${ps.length?`<ol class="wlist">${ps.map(p=>`<li class="${vis(p)==='other'?'other':''}"><span class="wt">${esc(p.time?fmtT(p.time):'Any time')}</span><span><span class="wtitle">${esc(p.title)}</span><span class="wwho">${vis(p)==='other'?esc(famLabel(p))+' · ':''}${esc(whoLabel(p))}</span></span></li>`).join('')}</ol>`:`<div class="empty">${all.length?'Nothing for the people selected':'Nothing planned yet'}</div>`}
     </section>`}).join('')}</div>`;
 }
 
 function daysView(){
   const days=tripDays();
-  if(!days.length)return`<div class="panel"><p class="muted">Add your travel dates in Trip details on the Overview tab to plan each day.</p></div>`;
+  if(!days.length)return`${scopeBar()}<div class="panel"><p class="muted">Add arrival and leave dates under Families on Home to plan each day.</p></div>`;
   if(!days.includes(selDay))selDay=days.includes(today())?today():days[0];
-  const d=selDay, pk=S.trip.dayParks?.[d]||'', all=dayPlans(d), plans=all.filter(shown), hidden=all.length-plans.length;
-  const lastDay=d===S.trip.end&&d!==S.trip.start;
-  return`${filterBar()}<div class="strip" role="tablist" aria-label="Trip days">${days.map(x=>{const p=S.trip.dayParks?.[x];return`<button class="daybtn" aria-current="${x===d}" data-act="selday" data-day="${x}"><span class="dw">${esc(fmtD(x,{weekday:'short'}))}</span><span class="dn">${pd(x).getDate()}</span><span class="dot" style="${p?`background:var(--p-${PCOLOR[p]||'rest'})`:''}"></span></button>`}).join('')}</div>
-  <div class="grid" style="margin-top:16px">
-    <section class="panel span2"><div class="panel-head"><div style="display:flex;flex-direction:column;gap:4px;min-width:0"><div class="label">Day ${days.indexOf(d)+1} of ${days.length}</div><h2>${esc(fmtD(d,{weekday:'long',month:'long',day:'numeric'}))}</h2>${hotelNote(d)}</div>
-      <div class="dayfields"><label class="field"><span>Park</span><select data-change="daypark" data-day="${d}">${parkOpts(pk)}</select></label>
-      ${lastDay?'':`<label class="field"><span>Hotel tonight</span><input type="text" id="dh-${d}" data-keep value="${esc(S.trip.dayHotels?.[d]||'')}" placeholder="${esc(S.trip.hotel||'Where you’re staying')}" data-change="dayhotel" data-day="${d}"></label>`}</div></div>
-      <div class="list">${plans.map(planRow).join('')||`<div class="empty">${hidden?'Nothing for the people selected on this day.':'Nothing planned for this day yet. Add rides, meals and breaks below, or schedule a must-do.'}</div>`}</div>
-      ${hidden&&plans.length?`<div class="fine">${plural(hidden,'plan')} hidden by the person filter.</div>`:''}
+  const d=selDay, s=curScope(), f=s==='group'?null:fam(s), all=dayPlans(d), plans=visiblePlans(d), hidden=all.length-plans.length;
+  const lastDay=f&&d===f.depart&&d!==f.arrive;
+  const sel=selected(), pickFams=s==='group'?families():[f];
+  const dayFields=f?`<div class="dayfields"><label class="field"><span>Park</span><select data-change="daypark" data-day="${d}">${parkOpts(famPark(f.id,d))}</select></label>
+      ${lastDay?'':`<label class="field"><span>Hotel tonight</span><input type="text" id="dh-${f.id}-${d}" data-keep value="${esc(S.trip.famHotels?.[f.id]?.[d]||(f.id===firstFam()?S.trip.dayHotels?.[d]||'':''))}" placeholder="${esc(f.hotel||'Where you’re staying')}" data-change="dayhotel" data-day="${d}"></label>`}</div>`
+    :`<div class="chips">${parkChips(d)}</div>`;
+  return`${scopeBar()}<div class="strip" role="tablist" aria-label="Trip days">${days.map(x=>{const pk=f?famPark(f.id,x):'';return`<button class="daybtn" aria-current="${x===d}" data-act="selday" data-day="${x}"><span class="dw">${esc(fmtD(x,{weekday:'short'}))}</span><span class="dn">${pd(x).getDate()}</span><span class="dot" style="${pk?`background:var(--p-${PCOLOR[pk]||'rest'})`:''}"></span></button>`}).join('')}</div>
+  <div class="grid" style="margin-top:12px">
+    <section class="panel span2"><div class="panel-head"><div style="display:flex;flex-direction:column;gap:4px;min-width:0"><div class="label">Day ${days.indexOf(d)+1} of ${days.length}</div><h2>${esc(fmtD(d,{weekday:'long',month:'long',day:'numeric'}))}</h2>${hotelNotes(d)}</div>
+      ${dayFields}</div>
+      ${!f&&multiFam()?'<div class="fine">Pick a family at the top to set its park and hotel for the day.</div>':''}
+      <div class="list">${plans.map(anyRow).join('')||`<div class="empty">${hidden?'Nothing for the people selected on this day.':'Nothing planned for this day yet.'}</div>`}</div>
+      ${hidden&&plans.length?`<div class="fine">${plural(hidden,'plan')} hidden by the people filter.</div>`:''}
       <details class="addbox" id="add-plan"${openAttr('add-plan',!all.length)}><summary class="btn">+ Add a plan</summary>
       <form class="form" data-form="plan">
         <label class="field"><span>Time</span><input type="time" id="pl-time" data-keep></label>
-        <label class="field" style="grid-column:span 2"><span>What</span><input type="text" id="pl-title" data-keep list="sugg" placeholder="Lunch at Sanaa" required></label>
         <label class="field"><span>Type</span><select id="pl-kind" data-keep>${KINDS.map(k=>`<option>${k}</option>`).join('')}</select></label>
+        <label class="field wide"><span>What</span><input type="text" id="pl-title" data-keep list="sugg" placeholder="Dinner at Sanaa" required></label>
         <label class="field"><span>Confirmation #</span><input type="text" id="pl-conf" data-keep placeholder="Optional"></label>
-        <label class="field" style="grid-column:span 2"><span>Notes</span><input type="text" id="pl-notes" data-keep placeholder="Mobile order, meeting spot, stroller parking…"></label>
-        ${party().length?`<fieldset class="wide whopick"><legend>Who’s going</legend>${party().map(m=>`<label class="check"><input type="checkbox" id="pl-who-${m.id}" data-keep data-who-pick="${m.id}" checked>${esc(m.name)}</label>`).join('')}</fieldset>`:''}
+        <label class="field"><span>Notes</span><input type="text" id="pl-notes" data-keep placeholder="Optional"></label>
+        ${pickFams.map(pf=>{const ms=famMembers(pf.id);return ms.length?`<fieldset class="wide whopick"><legend>${pickFams.length>1?esc(pf.name):'Who’s going'}</legend>${ms.map(m=>`<label class="check"><input type="checkbox" id="pl-who-${m.id}" data-keep data-who-pick="${m.id}"${sel.includes(m.id)?' checked':''}>${esc(m.name)}</label>`).join('')}</fieldset>`:''}).join('')}
         <div><button class="btn" type="submit">Add to day</button></div>
       </form></details>
       ${suggList()}
     </section></div>`;
 }
-const suggList=()=>`<datalist id="sugg">${SUGGEST[resort()].map(s=>`<option value="${esc(s[0])}"></option>`).join('')}</datalist>`;
+const suggList=()=>`<datalist id="sugg">${SUGGEST[resort()].map(x=>`<option value="${esc(x[0])}"></option>`).join('')}</datalist>`;
 
+function whoChips(ids,act,itemId){
+  return scopeMembers().map(p=>`<button type="button" class="chip-btn" style="--mc:${mcol(p.id)}" aria-pressed="${ids.includes(p.id)}" data-act="${act}" data-id="${itemId}" data-who="${p.id}"><span class="av">${initial(p.name)}</span>${esc(p.name)}</button>`).join('');
+}
 function heightIssue(w){
-  const h=Number(w.minHeight)||0;if(!h)return'';
-  const short=party().filter(p=>Number(p.height)>0&&Number(p.height)<h);
-  const unknown=party().filter(p=>!(Number(p.height)>0));
+  const h=Number(w.minHeight)||0, ms=scopeMembers();if(!h||!ms.length)return'';
+  const short=ms.filter(p=>Number(p.height)>0&&Number(p.height)<h), unknown=ms.filter(p=>!(Number(p.height)>0));
   if(short.length)return`<span class="chip bad">Too short: ${short.map(p=>`${esc(p.name)} (${esc(p.height)}″)`).join(', ')}</span>`;
-  if(unknown.length&&party().length)return`<span class="chip warn">No height yet: ${unknown.map(p=>esc(p.name)).join(', ')}</span>`;
-  return party().length?`<span class="chip good">Everyone can ride</span>`:'';
+  if(unknown.length)return`<span class="chip warn">No height yet: ${unknown.map(p=>esc(p.name)).join(', ')}</span>`;
+  return`<span class="chip good">Everyone can ride</span>`;
 }
 function mustdoView(){
-  const days=tripDays();
+  const days=tripDays(), ms=scopeMembers();
   const list=[...S.wishes].sort((a,b)=>(b.votes?.length||0)-(a.votes?.length||0)||String(a.title).localeCompare(b.title));
   const scheduled=t=>S.plans.filter(p=>String(p.title).toLowerCase().includes(String(t).toLowerCase()));
-  return`<div class="grid"><section class="panel span2">
-    <div class="panel-head"><div><h2>Must-dos</h2><p class="small muted" style="margin:2px 0 0">Everyone taps their name on what they want most. The list sorts by votes and checks heights.</p></div></div>
-    ${party().length?`<details id="heights"${openAttr('heights',false)}><summary>Heights for the ride check</summary>
-      <div class="names" style="margin-top:12px">${party().map(p=>`<label class="name-row"><span class="av" style="background:${mcol(p.id)}">${initial(p.name)}</span><span class="nm">${esc(p.name)}</span>
+  return`${scopeBar()}<div class="grid"><section class="panel span2">
+    <div class="panel-head"><div><h2>Must-dos</h2><p class="small muted" style="margin:2px 0 0">Shared by every family. Tap your name on what you want most; the list sorts by votes and checks heights.</p></div></div>
+    ${ms.length?`<details id="heights"${openAttr('heights',false)}><summary>Heights for the ride check</summary>
+      <div class="names" style="margin-top:12px">${ms.map(p=>`<label class="name-row"><span class="av" style="background:${mcol(p.id)}">${initial(p.name)}</span><span class="nm">${esc(p.name)}</span>
         <input type="number" inputmode="numeric" min="0" max="90" value="${esc(p.height??'')}" placeholder="inches" aria-label="${esc(p.name)}’s height in inches" data-change="pheight" data-id="${p.id}"></label>`).join('')}</div></details>`:''}
+    <details class="addbox" id="add-wish"${openAttr('add-wish',!list.length)}><summary class="btn">+ Add a must-do</summary>
     <form class="form" data-form="wish">
-      <label class="field" style="grid-column:span 2"><span>Ride, show or meal</span><input type="text" id="w-title" data-keep list="sugg" placeholder="Start typing a ride name" required></label>
+      <label class="field wide"><span>Ride, show or meal</span><input type="text" id="w-title" data-keep list="sugg" placeholder="Start typing a ride name" required></label>
       <label class="field"><span>Park</span><select id="w-park" data-keep>${parkOpts('','Any park')}</select></label>
       <label class="field"><span>Min height (in)</span><input type="number" id="w-h" data-keep min="0" max="60" placeholder="None"></label>
       <div><button class="btn" type="submit">Add must-do</button></div>
-    </form>${suggList()}
+    </form></details>${suggList()}
     <div class="list">${list.map(w=>{const sch=scheduled(w.title);return`<div class="row"><div class="body">
         <div class="title">${esc(w.title)}</div>
         <div class="meta">${parkChip(w.park)}${Number(w.minHeight)?`<span class="chip num">${esc(w.minHeight)}″ minimum</span>`:''}${heightIssue(w)}${sch.length?`<span class="chip good">Planned ${esc(sch.map(p=>fmtD(p.date,{weekday:'short'})).join(', '))}</span>`:''}<span class="num">${plural(w.votes?.length||0,'vote')}</span></div>
-        ${party().length?`<div class="chips">${whoChips(w.votes||[],'vote',w.id)}</div>`:''}
-        ${days.length?`<div style="max-width:240px"><select aria-label="Schedule ${esc(w.title)} on a day" data-change="schedule" data-id="${w.id}"><option value="">Add to a day…</option>${days.map((d,i)=>`<option value="${d}">Day ${i+1} · ${esc(fmtD(d))}${S.trip.dayParks?.[d]?' · '+esc(parkName(S.trip.dayParks[d])):''}</option>`).join('')}</select></div>`:''}
+        ${ms.length?`<div class="chips">${whoChips(w.votes||[],'vote',w.id)}</div>`:''}
+        ${days.length?`<div style="max-width:260px"><select aria-label="Schedule ${esc(w.title)} on a day" data-change="schedule" data-id="${w.id}"><option value="">Add to a day…</option>${days.map((d,i)=>`<option value="${d}">Day ${i+1} · ${esc(fmtD(d))}</option>`).join('')}</select></div>`:''}
       </div>${delBtn('del',w.id,'wishes',w.title)}</div>`}).join('')||'<div class="empty">No must-dos yet. Add the rides and characters each person cares about most.</div>'}</div>
   </section></div>`;
 }
@@ -424,30 +543,34 @@ function mustdoView(){
 function taskRow(x){
   const m=member(x.owner), late=x.due&&!x.done&&x.due<today(), pl=x.planId&&S.plans.find(p=>p.id===x.planId);
   return`<div class="row${x.done?' done':''}"><label class="check" style="padding-top:2px"><input type="checkbox" ${x.done?'checked':''} data-change="toggle" data-coll="tasks" data-id="${x.id}" aria-label="Done: ${esc(x.text)}"></label>
-    <div class="body"><div class="title">${esc(x.text)}</div><div class="meta">${x.due?`<span class="${late?'chip bad':'chip'}">${late?'Overdue · ':'Due '}${esc(fmtD(x.due))}</span>`:''}${m?`<span>${esc(m.name)}</span>`:''}${pl?`<span>For ${esc(pl.title)} · ${esc(fmtD(pl.date))}</span>`:''}</div></div>
+    <div class="body"><div class="title">${esc(x.text)}</div><div class="meta">${curScope()==='group'&&multiFam()?`<span class="chip fam">${esc(shortName(fam(itemFam(x))?.name))}</span>`:''}${x.due?`<span class="${late?'chip bad':'chip'}">${late?'Overdue · ':'Due '}${esc(fmtD(x.due))}</span>`:''}${m?`<span>${esc(m.name)}</span>`:''}${pl?`<span>For ${esc(pl.title)} · ${esc(fmtD(pl.date))}</span>`:''}</div></div>
     ${delBtn('del',x.id,'tasks',x.text)}</div>`;
 }
-const whoOpts=(blank)=>`<option value="">${blank}</option>`+party().map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
+const whoOpts=blank=>`<option value="">${blank}</option>`+scopeMembers().map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
 function listsView(){
-  const tasks=[...S.tasks].sort((a,b)=>(a.done-b.done)||((a.due||'9')<(b.due||'9')?-1:1));
-  const groups=[{id:'',name:'Everyone'},...party()].map(g=>({...g,items:S.packing.filter(x=>(x.who||'')===g.id||(!g.id&&x.who&&!member(x.who)))})).filter(g=>g.items.length);
-  const packed=S.packing.filter(x=>x.done).length;
-  return`<div class="grid">
-    <section class="panel"><div class="panel-head"><h2>To-dos</h2><span class="progress num">${S.tasks.filter(x=>x.done).length} of ${S.tasks.length} done</span></div>
+  const tasks=S.tasks.filter(inScope).sort((a,b)=>(a.done-b.done)||((a.due||'9')<(b.due||'9')?-1:1));
+  const pack=S.packing.filter(inScope), fs=scopeFams(), many=fs.length>1;
+  const groups=fs.flatMap(f=>[
+    {name:many?`${f.name} · shared`:'Whole family',items:pack.filter(x=>itemFam(x)===f.id&&!(x.who&&member(x.who)))},
+    ...famMembers(f.id).map(m=>({name:m.name,items:pack.filter(x=>x.who===m.id)}))
+  ]).filter(g=>g.items.length);
+  return`${scopeBar()}<div class="grid">
+    <section class="panel"><div class="panel-head"><h2>To-dos</h2><span class="progress num">${tasks.filter(x=>x.done).length} of ${tasks.length} done</span></div>
+      <details class="addbox" id="add-task"${openAttr('add-task',!tasks.length)}><summary class="btn">+ Add a to-do</summary>
       <form class="form" data-form="task">
         <label class="field wide"><span>To-do</span><input type="text" id="t-text" data-keep placeholder="Book dining for Day 2" required></label>
         <label class="field"><span>Due</span><input type="date" id="t-due" data-keep></label>
         <label class="field"><span>Who</span><select id="t-owner" data-keep>${whoOpts('Anyone')}</select></label>
-        <div><button class="btn" type="submit">Add</button></div></form>
+        <div><button class="btn" type="submit">Add</button></div></form></details>
       <div class="list">${tasks.map(taskRow).join('')||'<div class="empty">Track tickets, flights, dining, and anything else that needs booking.</div>'}</div>
-      <div class="fine">Booking windows from your dates are on the Overview tab.</div>
     </section>
-    <section class="panel"><div class="panel-head"><h2>Packing</h2><span class="progress num">${packed} of ${S.packing.length} packed</span></div>
+    <section class="panel"><div class="panel-head"><h2>Packing</h2><span class="progress num">${pack.filter(x=>x.done).length} of ${pack.length} packed</span></div>
+      <details class="addbox" id="add-pack"${openAttr('add-pack',!pack.length)}><summary class="btn">+ Add to packing</summary>
       <form class="form" data-form="pack">
         <label class="field wide"><span>Item</span><input type="text" id="k-text" data-keep placeholder="Ponchos, autograph book, chargers…" required></label>
-        <label class="field"><span>For</span><select id="k-who" data-keep>${whoOpts('Everyone')}</select></label>
-        <div><button class="btn" type="submit">Add</button></div></form>
-      ${groups.map(g=>`<div style="display:flex;flex-direction:column;gap:8px"><div class="label">${esc(g.name)}</div><div class="list">${g.items.map(x=>`<div class="row${x.done?' done':''}"><label class="check"><input type="checkbox" ${x.done?'checked':''} data-change="toggle" data-coll="packing" data-id="${x.id}" aria-label="Packed: ${esc(x.text)}"></label><div class="body"><div class="title">${esc(x.text)}</div></div>${delBtn('del',x.id,'packing',x.text)}</div>`).join('')}</div></div>`).join('')||'<div class="empty">Nothing on the list yet. Add shared items for everyone, or give each person their own.</div>'}
+        <label class="field"><span>For</span><select id="k-who" data-keep>${whoOpts(many?'Shared (pick a family above)':'Whole family')}</select></label>
+        <div><button class="btn" type="submit">Add</button></div></form></details>
+      ${groups.map(g=>`<div style="display:flex;flex-direction:column;gap:6px"><div class="label">${esc(g.name)}</div><div class="list">${g.items.map(x=>`<div class="row${x.done?' done':''}"><label class="check"><input type="checkbox" ${x.done?'checked':''} data-change="toggle" data-coll="packing" data-id="${x.id}" aria-label="Packed: ${esc(x.text)}"></label><div class="body"><div class="title">${esc(x.text)}</div></div>${delBtn('del',x.id,'packing',x.text)}</div>`).join('')}</div></div>`).join('')||'<div class="empty">Nothing on the list yet.</div>'}
     </section></div>`;
 }
 
@@ -471,46 +594,55 @@ function clear(...ids){ids.forEach(id=>{const el=document.getElementById(id);if(
 
 document.addEventListener('submit',e=>{
   const f=e.target.closest('form[data-form]');if(!f)return;e.preventDefault();
-  const k=f.dataset.form;
+  const k=f.dataset.form, fid=f.dataset.fam;
   if(k==='unlock'){const pw=$('#u-pw').value;if(pw)unlock(pw);return}
   if(k==='setup'){
     const start=val('s-start'),end=val('s-end')||start;
     if(!validDate(start)){toast('Pick your arrival date.');return}
     if(end<start){toast('The leave date is before the arrival date.');return}
-    const ppl=val('s-party').split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const[n,h]=l.split(',');return{id:uid(),name:n.trim().slice(0,40),height:Number(h)||null}});
-    act(store.setTrip({name:val('s-name')||'Our Disney trip',resort:val('s-resort')||'wdw',hotel:val('s-hotel'),start,end,onsite:document.getElementById('s-onsite').checked,party:ppl,dayParks:{}}),'Trip created');
+    const famId=uid();
+    const ppl=val('s-party').split('\n').map(l=>l.trim()).filter(Boolean).map(n=>({id:uid(),name:n.slice(0,40),height:null,family:famId}));
+    act(store.setTrip({name:val('s-name')||'Our Disney trip',resort:val('s-resort')||'wdw',
+      families:[{id:famId,name:val('s-fam')||'Our family',hotel:val('s-hotel'),arrive:start,depart:end,onsite:document.getElementById('s-onsite').checked}],party:ppl}),'Trip created');
   }
-  if(k==='tripedit'){
-    const start=val('t-start'),end=val('t-end')||start;
-    if(validDate(start)&&end<start){toast('The leave date is before the arrival date.');return}
-    act(store.updateTrip({name:val('t-name')||'Our Disney trip',resort:val('t-resort'),hotel:val('t-hotel'),start,end,onsite:document.getElementById('t-onsite').checked}),'Trip details saved');
+  if(k==='tripedit')act(store.updateTrip({name:val('t-name')||'Our Disney trip',resort:val('t-resort')}),'Saved');
+  if(k==='famedit'){
+    const name=val('fe-name-'+fid), arrive=val('fe-arrive-'+fid), depart=val('fe-depart-'+fid)||arrive;
+    if(!name){toast('Give the family a name.');return}
+    if(validDate(arrive)&&depart<arrive){toast('The leave date is before the arrival date.');return}
+    act(store.updateTrip({families:famSaveList(fid,{name:name.slice(0,40),hotel:val('fe-hotel-'+fid).slice(0,80),arrive,depart,onsite:document.getElementById('fe-onsite-'+fid).checked})}),'Saved');
+  }
+  if(k==='famadd'){
+    const name=val('fa-name');if(!name)return;clear('fa-name');
+    const first=families()[0]||{}, nf={id:uid(),name:name.slice(0,40),hotel:'',arrive:first.arrive||'',depart:first.depart||'',onsite:false};
+    openBoxes.add('famedit-'+nf.id);
+    act(store.updateTrip({families:[...families(),nf]}),`${nf.name} added. Add their people below.`);
   }
   if(k==='padd'){
-    const name=val('p-name');if(!name)return;clear('p-name');
-    act(store.updateTrip({party:[...party(),{id:uid(),name:name.slice(0,40),height:null}]}));
+    const name=val('p-name-'+fid);if(!name)return;clear('p-name-'+fid);
+    act(store.updateTrip({party:[...party(),{id:uid(),name:name.slice(0,40),height:null,family:fid}],...(S.trip.families?{}:{families:families()})}));
   }
   if(k==='plan'){
     const title=val('pl-title');if(!title)return;
     const picks=[...f.querySelectorAll('[data-who-pick]')];
-    const who=picks.length?picks.filter(c=>c.checked).map(c=>c.dataset.whoPick):[];
+    const who=picks.filter(c=>c.checked).map(c=>c.dataset.whoPick);
     if(picks.length&&!who.length){toast('Pick at least one person who’s going.');return}
     const d={date:selDay,time:val('pl-time'),title,kind:val('pl-kind')||'Other',conf:val('pl-conf'),notes:val('pl-notes'),who};
-    clear('pl-time','pl-title','pl-conf','pl-notes');picks.forEach(c=>c.checked=true);act(store.add('plans',d));
+    clear('pl-time','pl-title','pl-conf','pl-notes');act(store.add('plans',d));
   }
   if(k==='plantodo'){
     const text=val('pt-text'),due=val('pt-due'),owner=val('pt-owner');
     if(!text||!validDate(due)){toast('Pick a due date for the to-do.');return}
     if(!owner){toast('Choose who owns this to-do.');return}
     openTodo=null;clear('pt-text','pt-due','pt-owner');
-    act(store.add('tasks',{text,due,owner,done:false,planId:f.dataset.id}),'To-do added');
-    return;
+    act(store.add('tasks',{text,due,owner,done:false,planId:f.dataset.id,family:newItemFam(owner)}),'To-do added');
   }
   if(k==='wish'){
     const title=val('w-title');if(!title)return;const d={title,park:val('w-park'),minHeight:Number(val('w-h'))||0,votes:[]};
     clear('w-title','w-h');document.getElementById('w-park').value='';act(store.add('wishes',d));
   }
-  if(k==='task'){const text=val('t-text');if(!text)return;const d={text,due:val('t-due'),owner:val('t-owner'),done:false};clear('t-text','t-due');act(store.add('tasks',d))}
-  if(k==='pack'){const text=val('k-text');if(!text)return;const d={text,who:val('k-who'),done:false};clear('k-text');act(store.add('packing',d))}
+  if(k==='task'){const text=val('t-text');if(!text)return;const owner=val('t-owner');const d={text,due:val('t-due'),owner,done:false,family:newItemFam(owner)};clear('t-text','t-due');act(store.add('tasks',d))}
+  if(k==='pack'){const text=val('k-text');if(!text)return;const who=val('k-who');const d={text,who,done:false,family:newItemFam(who)};clear('k-text');act(store.add('packing',d))}
 });
 
 // fill park + height when a known attraction is picked
@@ -524,37 +656,41 @@ const toggleIn=(arr,v)=>arr.includes(v)?arr.filter(x=>x!==v):[...arr,v];
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b)return;
   const {act:a,id,coll,who,day}=b.dataset;
-  if((a==='del'||a==='pdel')&&!confirmTap(b,a+id))return;
+  if((a==='del'||a==='pdel'||a==='famdel')&&!confirmTap(b,a+id))return;
+  if(a==='scope'){scope=who;ls.set('trip-scope',scope);render()}
+  if(a==='person'){off=toggleIn(off,who);ls.set('trip-off',off);render()}
+  if(a==='allon'){const ids=scopeMembers().map(m=>m.id);off=off.filter(x=>!ids.includes(x));ls.set('trip-off',off);render()}
   if(a==='selday'){selDay=day;ls.set('trip-selday',day);render()}
   if(a==='goday'){selDay=day;ls.set('trip-selday',day);location.hash='days'}
-  if(a==='del'){const it=S[coll].find(x=>x.id===id);act(store.remove(coll,id),it?`Deleted “${it.title||it.text||it.label}”`:null)}
+  if(a==='del'){const it=S[coll].find(x=>x.id===id);act(store.remove(coll,id),it?`Deleted “${it.title||it.text}”`:null)}
   if(a==='pdel'){act(store.updateTrip({party:party().filter(p=>p.id!==id)}))}
+  if(a==='famdel'){if(famMembers(id).length){toast('Remove this family’s people first.');return}act(store.updateTrip({families:families().filter(f=>f.id!==id)}),'Family removed')}
   if(a==='vote'){const w=S.wishes.find(x=>x.id===id);if(w)act(store.update('wishes',id,{votes:toggleIn(w.votes||[],who)}))}
-  if(a==='filt'){filt=who?toggleIn(activeFilt(),who):[];ls.set('trip-filter',filt);render()}
+  if(a==='key'){const p=S.plans.find(x=>x.id===id);if(p)act(store.update('plans',id,{key:!isKey(p)}))}
   if(a==='unwho'){const p=S.plans.find(x=>x.id===id);if(p)act(store.update('plans',id,{who:planWho(p).filter(x=>x!==who)}))}
   if(a==='todoopen'){openTodo=id;render();document.getElementById('pt-due')?.focus()}
   if(a==='todoclose'){openTodo=null;render()}
   if(a==='ics'){const p=S.plans.find(x=>x.id===id);if(p)saveIcs([p],p.title)}
-  if(a==='icsall'){saveIcs(tripDays().flatMap(d=>dayPlans(d).filter(shown)),S.trip.name||'Disney trip')}
+  if(a==='icsall'){saveIcs(tripDays().flatMap(visiblePlans),S.trip.name||'Disney trip')}
   if(a==='copylink'){const u=shareUrl();navigator.clipboard?.writeText(u).then(()=>toast('Link copied. Send the password separately.'),()=>{$('#share-url').select();toast('Press copy to copy the selected link.')})}
   if(a==='sharelink'){navigator.share?.({title:S.trip?.name||'Our Disney trip',text:'Our Disney trip plan. I’ll send you the password separately.',url:shareUrl()}).catch(()=>{})}
   if(a==='signout'){signOut(auth).then(()=>location.reload())}
 });
 document.addEventListener('change',e=>{
   const el=e.target.closest('[data-change]');if(!el)return;
-  const {change:c,id,coll,day}=el.dataset;
+  const {change:c,id,coll,day}=el.dataset, s=curScope();
   if(c==='toggle')act(store.update(coll,id,{done:el.checked}));
-  if(c==='daypark')act(store.updateTrip({dayParks:{[day]:el.value}}));
+  if(c==='daypark'&&s!=='group')act(store.updateTrip({famParks:{[s]:{[day]:el.value}}}));
+  if(c==='dayhotel'&&s!=='group')act(store.updateTrip({famHotels:{[s]:{[day]:el.value.trim().slice(0,80)}}}));
   if(c==='addwho'&&el.value){const p=S.plans.find(x=>x.id===id);if(p)act(store.update('plans',id,{who:[...planWho(p),el.value]}))}
-  if(c==='dayhotel')act(store.updateTrip({dayHotels:{[day]:el.value.trim().slice(0,80)}}));
   if(c==='pname'){const n=el.value.trim().slice(0,40);if(n)act(store.updateTrip({party:party().map(p=>p.id===id?{...p,name:n}:p)}))}
   if(c==='pheight')act(store.updateTrip({party:party().map(p=>p.id===id?{...p,height:Number(el.value)||null}:p)}));
   if(c==='schedule'&&el.value){
     const w=S.wishes.find(x=>x.id===id);if(!w)return;
-    const d=el.value;act(store.add('plans',{date:d,time:'',title:w.title,kind:'Ride',conf:'',notes:'',who:(w.votes&&w.votes.length)?w.votes:party().map(p=>p.id)}),`Added to ${fmtD(d)}`);
+    const ms=scopeMembers().map(m=>m.id), voters=(w.votes||[]).filter(v=>ms.includes(v));
+    const d=el.value;act(store.add('plans',{date:d,time:'',title:w.title,kind:'Ride',conf:'',notes:'',who:voters.length?voters:selected()}),`Added to ${fmtD(d)}`);
   }
 });
-
 // ---------- sign-in & boot ----------
 let app=null, auth=null, db=null;
 function authMessage(e){
