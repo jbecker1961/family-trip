@@ -2,7 +2,7 @@
 
 A shared, password-protected trip planner for the family. It's plain HTML, CSS and JavaScript with no build step, hosted on GitHub Pages, with trip data stored in Firebase (Firestore).
 
-- **Home:** each family's tile first (dates, hotel, flights with numbers and a FlightAware tracking link, then parks, activities and dining), then the countdown, trip at a glance, next to-dos, booking windows (dining, Lightning Lane, check-in) worked out from your dates, who's going, and sharing.
+- **Home:** each family's tile first (dates, hotel, an Outbound and a Return flight slot with flight number, airports, times, confirmation and a FlightAware tracking link, then parks, activities and dining), then the countdown, trip at a glance, next to-dos, booking windows (dining, Lightning Lane, check-in) worked out from your dates, who's going, and sharing.
 - **Trip:** every day at once, with its park, hotel and plans, plus **Add all to calendar**.
 - **Day:** a park and hotel for each day and a timed plan. Each plan lists only the people going (tap × to remove someone), can spawn a to-do with a due date and owner, and can be added to Apple or Google Calendar.
 - **Must-dos:** everyone votes; known rides fill in park and height minimum, and anyone too short is flagged. Heights are set here.
@@ -30,6 +30,10 @@ A trip can have several families (for example, two families travelling together)
 - **Home > Families** shows each family's dates, hotel, people, travel and dining (your own family in a family view, every family in Group), and is where a family edits its details or adds people. **Add another family** is at the bottom of that panel.
 
 The family views reduce clutter; they are not private. Everyone with the link and password can switch to Group.
+
+## Flights
+
+Each family has an **Outbound flight** and a **Return flight** on its Home tile (date, flight number, from, to, departs, arrives, confirmation). Saved flights appear on the Day and Trip tabs and in calendar export on their own, for everyone in that family. If an old travel plan like "EWR to MCO" is on the arrival or leave day, the flight form pre-fills from it, and saving moves it into the flight so it isn't listed twice.
 
 ## How access works
 

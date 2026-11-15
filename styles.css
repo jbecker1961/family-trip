@@ -279,3 +279,16 @@ select.addwho{width:auto;min-height:36px;padding:4px 10px;font-size:16px;border-
 .flightin{display:flex;align-items:center;gap:8px;font-size:.84rem;font-weight:600;color:var(--muted)}
 .flightin input{max-width:150px;min-height:38px;padding:6px 10px;text-transform:uppercase}
 #pl-flight,[id^="ff-num-"]{text-transform:uppercase}
+
+/* outbound / return flight slots */
+.legs{display:grid;gap:8px;grid-template-columns:minmax(0,1fr)}
+.leg{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface);display:flex;flex-direction:column;gap:4px;min-width:0}
+.leghead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.legname{font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.legmain{font-weight:700;font-size:1.02rem}
+.leg details > summary{min-height:36px;color:var(--accent)}
+.legbtns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.legbtns .x.wide{height:var(--tap)}
+[id$="-num"],[id$="-from"],[id$="-to"]{text-transform:uppercase}
+.flightrow .title{font-weight:700}
+@media (min-width:760px){.legs{grid-template-columns:repeat(2,minmax(0,1fr))}}
