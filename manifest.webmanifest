@@ -1,6 +1,6 @@
 {
-  "name": "Family Disney Trip",
-  "short_name": "Disney Trip",
+  "name": "Trip Planner (test)",
+  "short_name": "Trip Test",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

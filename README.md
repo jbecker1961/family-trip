@@ -72,15 +72,15 @@ Use a **separate** Firebase project so the test version can never touch the live
 2. **Build > Authentication > Get started > Sign-in method**: enable **Email/Password** (leave "Email link" off). Under **Settings > User actions**, keep **Enable create (sign-up)** checked: the approval step keeps strangers out.
 3. **Build > Firestore Database > Create database**: **production mode**, a location near you.
 4. **Firestore Database > Rules**: paste [`firestore.rules`](firestore.rules), replace `you@example.com` with your own email (lowercase), and **Publish**.
-5. **Project settings > General > Your apps**: add a **Web** app and copy its `firebaseConfig` into [`firebase-config.js`](firebase-config.js) in place of `null`. Optionally set `adminPhone` there.
-6. Run it locally (below), **Create an account** with the admin email, confirm it from your inbox, and you're in.
+5. **Authentication > Settings > Authorized domains**: add `jbecker1961.github.io` so the hosted test site can sign in.
+6. **Project settings > General > Your apps**: add a **Web** app and copy its `firebaseConfig` into [`firebase-config.js`](firebase-config.js) in place of `null`. Optionally set `adminPhone` there.
+7. Open the test site (or run it locally, below), **Create an account** with the admin email, confirm it from your inbox, and you're in.
 
 The values in `firebase-config.js` identify the project and are safe to publish; the rules are what protect the data.
 
 ### Not done yet
 
 - Moving the live Disney trip into this version.
-- Hosting the test version somewhere phones can open it (GitHub Pages serves only `main`).
 - "Sign in with Google".
 - Testing the rules in Firebase's emulator (the app's screens and logic are tested headlessly).
 
@@ -91,6 +91,10 @@ python3 -m http.server 8000
 ```
 
 Then open http://localhost:8000. (`localhost` is allowed for sign-in by default.)
+
+## Test site
+
+The test version is its own repository, `jbecker1961/family-trip-test`, published at https://jbecker1961.github.io/family-trip-test/. It shares that web address with the live planner, so it keeps its own saved settings (prefixed `v2test-`), its own offline cache and its own home-screen name ("Trip Test"). Push this branch there to update it: `git push test v2-accounts:main`.
 
 ## Host it on GitHub Pages
 

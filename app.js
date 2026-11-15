@@ -9,7 +9,9 @@ const APP_VERSION='v2-test.1';   // shown at the bottom of Home so you can tell 
 const $=(s,r=document)=>r.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>(crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2)).replace(/-/g,'').slice(0,16);
-const ls={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch{return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
+// The test version shares a web address with the live one, so its saved settings get their own prefix.
+const LS_PREFIX='v2test-';
+const ls={get(k,d){try{const v=localStorage.getItem(LS_PREFIX+k);return v==null?d:JSON.parse(v)}catch{return d}},set(k,v){try{localStorage.setItem(LS_PREFIX+k,JSON.stringify(v))}catch{}}};
 const pd=s=>{const[y,m,d]=String(s).split('-').map(Number);return new Date(y,(m||1)-1,d||1)};
 const iso=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const addDays=(s,n)=>{const d=pd(s);d.setDate(d.getDate()+n);return iso(d)};
