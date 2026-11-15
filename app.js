@@ -3,7 +3,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, onSnapshot, setDoc, updateDoc, deleteDoc, addDoc, FieldPath } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-const APP_VERSION='2026.11.15-11';   // shown at the bottom of Home so you can tell which version a phone has
+const APP_VERSION='2026.11.15-12';   // shown at the bottom of Home so you can tell which version a phone has
 
 // ---------- helpers ----------
 const $=(s,r=document)=>r.querySelector(s);
@@ -428,8 +428,11 @@ function setupView(){
   }
   if(S.mode==='locked')return`<div class="panel welcome"><h2>Enter the trip password</h2>
     <p class="muted">This trip is password protected. Ask whoever sent you the link for the password. You only need to enter it once on this device.</p>
-    <form class="form inline" data-form="unlock">
-      <input type="password" id="u-pw" autocomplete="current-password" aria-label="Trip password" placeholder="Trip password" required>
+    <form class="form inline" data-form="unlock" method="post" action="#">
+      <!-- Password managers (iCloud Keychain, Google) only offer to save a password that has a username,
+           so the trip gets a fixed, hidden one. -->
+      <input type="text" name="username" autocomplete="username" value="Disney trip" hidden readonly tabindex="-1" aria-hidden="true">
+      <input type="password" id="u-pw" name="password" autocomplete="current-password" aria-label="Trip password" placeholder="Trip password" required>
       <button class="btn" type="submit"${S.busy?' disabled':''}>${S.busy?'Checking…':'Open trip'}</button>
     </form>${S.authErr?`<div class="chip bad" role="alert" style="white-space:normal">${esc(S.authErr)}</div>`:''}</div>`;
   if(S.mode==='loading')return`<div class="panel setup"><p class="muted">Loading your trip…</p></div>`;
