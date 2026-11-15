@@ -4,8 +4,10 @@ import UIKit
 /// Where the app navigates, and how a pasted trip link becomes a key.
 /// The website's own rule is `?t=` plus 24–64 lowercase letters and digits.
 enum Site {
-    /// Change this if the GitHub Pages address moves. The iPhone app loads this URL.
-    static let home = URL(string: "https://jbecker1961.github.io/family-trip/")!
+    /// The live planner's address (custom domain on GitHub Pages). The iPhone app loads this URL.
+    static let home = URL(string: "https://allsetaway.com/")!
+    /// The old GitHub Pages address now redirects to `home`; treat it as part of the app too.
+    static let legacy = URL(string: "https://jbecker1961.github.io/family-trip/")!
 
     static func pageURL(key: String) -> URL {
         guard var parts = URLComponents(url: home, resolvingAgainstBaseURL: false) else { return home }
@@ -38,9 +40,11 @@ enum Site {
     /// Pages on the planner stay in the app. Other http(s) links go to Safari.
     static func isInApp(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" else { return false }
-        guard url.host?.lowercased() == home.host?.lowercased() else { return false }
-        let prefix = home.path.hasSuffix("/") ? String(home.path.dropLast()) : home.path
-        return url.path == prefix || url.path.hasPrefix(prefix + "/")
+        return [home, legacy].contains { base in
+            guard url.host?.lowercased() == base.host?.lowercased() else { return false }
+            let prefix = base.path.hasSuffix("/") ? String(base.path.dropLast()) : base.path
+            return prefix.isEmpty || url.path == prefix || url.path.hasPrefix(prefix + "/")
+        }
     }
 
     static func shouldOpenOutside(_ url: URL) -> Bool {

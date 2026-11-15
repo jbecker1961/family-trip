@@ -112,6 +112,17 @@ Then open http://localhost:8000/?t=<key>.
 
 Push this folder to a GitHub repository, then turn on **Settings > Pages > Deploy from a branch**, branch `main`, folder `/ (root)`. GitHub Pages needs a public repository on a free GitHub plan; that's fine here because the repository holds only code, and trip data stays in Firebase behind the password.
 
+### Custom domain: allsetaway.com
+
+The live site is served at **https://allsetaway.com** (the `CNAME` file). Old `jbecker1961.github.io/family-trip/` links redirect there automatically, trip key included.
+
+- **DNS (Cloudflare, "DNS only", not proxied):** four `A` records for `@` (185.199.108.153, .109, .110, .111), four `AAAA` records (2606:50c0:8000::153, 8001, 8002, 8003), and `www` as a `CNAME` to `jbecker1961.github.io`.
+- **HTTPS:** GitHub's free certificate, with **Enforce HTTPS** on. `http://` and `www.` both redirect to `https://allsetaway.com`.
+- **Takeover protection:** the domain is verified for the jbecker1961 GitHub account (`_github-pages-challenge-jbecker1961` TXT record), so no other account can publish a Pages site on it.
+- **DNSSEC** is on in Cloudflare.
+- **No email:** `v=spf1 -all` and a DMARC `p=reject` record, so nobody can send mail pretending to be @allsetaway.com.
+- **Firebase:** `allsetaway.com` is in Authentication > Settings > Authorized domains.
+
 ## Files
 
 - `index.html`, `styles.css`, `app.js`: the app.
