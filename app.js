@@ -3,7 +3,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, onSnapshot, setDoc, updateDoc, deleteDoc, addDoc, FieldPath } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-const APP_VERSION='2026.11.15-8';   // shown at the bottom of Home so you can tell which version a phone has
+const APP_VERSION='2026.11.15-9';   // shown at the bottom of Home so you can tell which version a phone has
 
 // ---------- helpers ----------
 const $=(s,r=document)=>r.querySelector(s);
@@ -260,7 +260,7 @@ function renderHeader(){
     }
   }
   $('#head').innerHTML=`${t?viewingBar():''}<div class="toprow"><div class="tt">
-      <h1 class="trip-name">${t?esc(t.name||'Our Disney trip'):'Family trip planner'}</h1>
+      <h1 class="trip-name">${t?esc(viewTitle()):'Family trip planner'}</h1>
       <div class="trip-sub">${t?esc(dates)+(pill?`${dates?' · ':''}<span class="sync ${pill[0]}"><i></i>${pill[1]}</span>`:''):'Rides, dining and packing for the whole family.'}</div>
     </div>${count}</div>`;
   const tab=currentTab();
@@ -269,14 +269,13 @@ function renderHeader(){
 }
 
 // ---------- "Viewing" selector at the very top: Group / each family ----------
+// The big title under the selector names what you're looking at.
+const viewTitle=()=>{const s=curScope();return s==='group'?'Group':(fam(s)?.name||'Our family')};
 function viewingBar(){
   const fs=families();if(fs.length<2)return'';
-  const s=curScope(), others=f=>fs.filter(x=>x.id!==f.id).map(x=>shortName(x.name));
-  const cap=s==='group'?`Everyone in the ${listJoin(fs.map(f=>shortName(f.name)))} families, all plans`
-    :`Plans with anyone from the ${shortName(fam(s).name)} family, including ones shared with the ${listJoin(others(fam(s)))} family`;
+  const s=curScope();
   return`<div class="viewing"><span class="label">Viewing</span>
-    <div class="scopebar" role="tablist" aria-label="Whose plans to show">${[['group','Group'],...fs.map(f=>[f.id,shortName(f.name)])].map(([k,n])=>`<button type="button" class="seg" role="tab" aria-selected="${s===k}" data-act="scope" data-who="${k}">${esc(n)}</button>`).join('')}</div>
-    <div class="viewcap">${esc(cap)}</div></div>`;
+    <div class="scopebar" role="tablist" aria-label="Whose plans to show">${[['group','Group'],...fs.map(f=>[f.id,shortName(f.name)])].map(([k,n])=>`<button type="button" class="seg" role="tab" aria-selected="${s===k}" data-act="scope" data-who="${k}">${esc(n)}</button>`).join('')}</div></div>`;
 }
 // ---------- people in the current view (all on; tap to hide) ----------
 function scopeBar(){

@@ -261,7 +261,6 @@ select.addwho{width:auto;min-height:36px;padding:4px 10px;font-size:16px;border-
 .viewing .scopebar{margin-bottom:0;background:var(--accent-soft)}
 .viewing .seg{font-size:.95rem;min-height:42px}
 .viewing .seg[aria-selected="true"]{color:var(--accent)}
-.viewcap{font-size:.84rem;font-weight:600;color:var(--ink)}
 
 /* "Everyone" chip and the itinerary note */
 .chip-btn.every{padding-left:14px;padding-right:14px}
