@@ -114,7 +114,7 @@ Push this folder to a GitHub repository, then turn on **Settings > Pages > Deplo
 
 ### Custom domain: allsetaway.com
 
-The live site is served at **https://allsetaway.com** (the `CNAME` file). Old `jbecker1961.github.io/family-trip/` links redirect there automatically, trip key included.
+The live site is served at **https://allsetaway.com** (the `CNAME` file). The plain address opens the Disney trip (`DEFAULT_TRIP` in `app.js`), so sharing **allsetaway.com** plus the trip password is enough; that makes the password the only lock, so keep it strong. Links with `?t=<key>` still open their own trip. Old `jbecker1961.github.io/family-trip/` links redirect there automatically, trip key included.
 
 - **DNS (Cloudflare, "DNS only", not proxied):** four `A` records for `@` (185.199.108.153, .109, .110, .111), four `AAAA` records (2606:50c0:8000::153, 8001, 8002, 8003), and `www` as a `CNAME` to `jbecker1961.github.io`.
 - **HTTPS:** GitHub's free certificate, with **Enforce HTTPS** on. `http://` and `www.` both redirect to `https://allsetaway.com`.

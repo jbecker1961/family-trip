@@ -3,7 +3,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, onSnapshot, setDoc, updateDoc, deleteDoc, addDoc, FieldPath } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-const APP_VERSION='2026.11.15-10';   // shown at the bottom of Home so you can tell which version a phone has
+const APP_VERSION='2026.11.15-11';   // shown at the bottom of Home so you can tell which version a phone has
 
 // ---------- helpers ----------
 const $=(s,r=document)=>r.querySelector(s);
@@ -147,8 +147,11 @@ const famHotel=(fid,d)=>String(S.trip.famHotels?.[fid]?.[d]||(fid===firstFam()?S
 // so the link alone shows nothing. The email address is never mailed to; it just names the account.
 const KEY_RE=/^[a-z0-9]{24,64}$/;
 const tripEmail=k=>`${k}@trips.example.com`;
-const tripKey=()=>{const k=new URLSearchParams(location.search).get('t');return k&&KEY_RE.test(k)?k:null};
-const shareUrl=()=>{const u=new URL(location.href);u.hash='';u.search='?t='+tripKey();return u.toString()};
+// allsetaway.com with no ?t= opens our Disney trip, so the plain address plus the password is enough.
+// That makes the trip password the only lock, so it should be a strong one.
+const DEFAULT_TRIP='xsq8s36jfcz3nckg47wxnjbww5jy';
+const tripKey=()=>{const k=new URLSearchParams(location.search).get('t');return k==null||k===''?DEFAULT_TRIP:KEY_RE.test(k)?k:null};
+const shareUrl=()=>{const u=new URL(location.href);u.hash='';u.search=tripKey()===DEFAULT_TRIP?'':'?t='+tripKey();return u.toString()};
 
 // ---------- shared store (Firestore) ----------
 let store=null;
