@@ -342,7 +342,7 @@ final class TripWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WK
     private func shouldIgnore(_ error: Error) -> Bool {
         let ns = error as NSError
         if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled { return true }
-        if ns.domain == WKErrorDomain && ns.code == WKError.Code.frameLoadInterruptedByPolicyChange.rawValue {
+        if ns.domain == "WebKitErrorDomain" && ns.code == 102 { // frame load interrupted by policy change
             return true
         }
         return false

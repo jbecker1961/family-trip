@@ -276,7 +276,8 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jbecker.familytrip;
+				DEVELOPMENT_TEAM = RLQAWNA3P5;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jasonbecker.familytrip;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -307,7 +308,8 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jbecker.familytrip;
+				DEVELOPMENT_TEAM = RLQAWNA3P5;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jasonbecker.familytrip;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
