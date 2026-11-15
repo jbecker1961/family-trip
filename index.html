@@ -16,16 +16,25 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
+<!-- Open connections and start every script download at once, instead of one after another. -->
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://firestore.googleapis.com">
+<link rel="preconnect" href="https://identitytoolkit.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=2026.11.15-12">
+<link rel="modulepreload" href="firebase-config.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js">
+<link rel="stylesheet" href="styles.css?v=2026.11.15-13">
+<!-- Fonts load in the background; the page shows right away in the system font until they arrive. -->
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&display=swap"></noscript>
 </head>
 <body>
 <header class="top"><div class="wrap" id="head"></div></header>
 <nav class="tabs" aria-label="Sections" hidden><div class="wrap" id="tabs"></div></nav>
 <main><div class="wrap" id="view"><p class="muted">Loading…</p></div></main>
 <div class="toast" id="toast" hidden></div>
-<script type="module" src="app.js?v=2026.11.15-12"></script>
+<script type="module" src="app.js?v=2026.11.15-13"></script>
 </body>
 </html>

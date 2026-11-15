@@ -3,7 +3,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, onSnapshot, setDoc, updateDoc, deleteDoc, addDoc, FieldPath } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-const APP_VERSION='2026.11.15-12';   // shown at the bottom of Home so you can tell which version a phone has
+const APP_VERSION='2026.11.15-13';   // shown at the bottom of Home so you can tell which version a phone has
 
 // ---------- helpers ----------
 const $=(s,r=document)=>r.querySelector(s);
