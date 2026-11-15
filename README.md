@@ -73,6 +73,33 @@ There's no reset email, because the account address isn't real. Instead:
 
 The values in `firebase-config.js` identify the project and are safe to publish; the rules and the trip password are what protect the data. Firebase's free Spark plan is far more than a family trip needs.
 
+## Run it on your iPhone (free)
+
+`ios/DisneyTrip` is a small iPhone app that loads the live GitHub Pages site. Push a change to the website and it shows up in the app the next time the page loads. The trip password is saved with the website data on the phone, the same way it is in Safari.
+
+Install **Xcode** from the Mac App Store and sign the app with the Apple ID you already have. That is the whole setup. The app needs iOS 17 or later. TestFlight and the App Store, which put the app on other people's phones, need the paid Apple Developer Program ($99 a year).
+
+1. Install **Xcode** from the Mac App Store. Open it once and wait until it finishes installing the extra components.
+2. Plug the iPhone into the Mac with a cable, unlock it, and tap **Trust**.
+3. On the Mac, open `ios/DisneyTrip/DisneyTrip.xcodeproj` (double-click it). If Xcode asks to update the project settings, either choice is fine.
+4. In the left sidebar, click the blue **DisneyTrip** project, then the **DisneyTrip** target under Targets. Open **Signing & Capabilities**.
+5. Turn on **Automatically manage signing**. Next to **Team**, choose **Add an Account…**, sign in with your Apple ID, and pick the **Personal Team** (your name).
+6. Leave the bundle identifier as `com.jbecker.familytrip`, or change it if Xcode says that one is taken. Something like `com.jbecker.familytrip.yourname` is fine. There is nothing to add under Capabilities.
+7. At the top of the window, set the run destination to your iPhone, then press **Run** (the play button). The first build takes a few minutes, and Xcode creates a free provisioning profile. If a signing error appears, check that Team is your Personal Team and press Run again.
+8. If the iPhone asks you to enable **Developer Mode**, turn it on, restart the phone, and press Run again. The switch is under **Settings > Privacy & Security > Developer Mode**. It sometimes appears only after the first Run.
+9. If the app installs but won't open, and the phone says the developer isn't trusted: open **Settings > General > VPN & Device Management**, tap the Apple Development profile for your Apple ID, and tap **Trust**. On some iOS versions that menu is named **Device Management**.
+10. Open **Disney Trip**. Paste the trip link (or just the key) and then the trip password. The password is remembered on this phone.
+
+A free Apple ID signature lasts **7 days**. After that, plug the phone in and press Run again. Leave the app installed: Run refreshes the signature and keeps the saved sign-in.
+
+To open a different trip later, tap **Open a different trip** on the Home tab (under Sign out). You can also long-press the Disney Trip icon on the Home Screen and tap **Change trip**.
+
+Links that leave the planner, such as FlightAware and Google Calendar, open in Safari. **iPhone / Apple Calendar** asks to add the plans to Calendar, or to share the `.ics` file. Pull down on the plan to reload it.
+
+The address the app loads is `Site.home` at the top of `ios/DisneyTrip/DisneyTrip/TripLink.swift`. Change that line if the website moves.
+
+The `ios` folder is the app only. The website and the GitHub Pages setup are unchanged.
+
 ## Run it locally
 
 ```bash
@@ -91,3 +118,4 @@ Push this folder to a GitHub repository, then turn on **Settings > Pages > Deplo
 - `firebase-config.js`: your Firebase project's web config.
 - `firestore.rules`: the database access rules (paste into the Firebase console).
 - `sw.js`, `manifest.webmanifest`, `icon-*.png`, `apple-touch-icon.png`: home-screen install and offline support.
+- `ios/DisneyTrip`: the iPhone app. See **Run it on your iPhone (free)**.
