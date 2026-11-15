@@ -291,3 +291,36 @@ select.addwho{width:auto;min-height:36px;padding:4px 10px;font-size:16px;border-
 [id$="-num"],[id$="-from"],[id$="-to"]{text-transform:uppercase}
 .flightrow .title{font-weight:700}
 @media (min-width:760px){.legs{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* ---------- palettes: one per view (set on <html data-palette>) ----------
+   Group = Main Street (parade red, navy, marquee gold)
+   Becker Family = Fireworks (castle-night plum, rose, sparkler gold)
+   Logothetis Family = Monorail (white and black with a monorail-orange stripe)
+   Light values first; the dark blocks carry one more attribute so they win in dark mode. */
+:root{--nav-bg:var(--surface);--nav-ink:var(--muted);--nav-active:var(--accent);--nav-border:var(--line)}
+:root[data-palette="mainstreet"]{--bg:#F6F3EE;--surface:#FFFFFF;--sunk:#EDE6DB;--ink:#1E2A44;--muted:#646B7D;--line:#E2DACB;--accent:#C8102E;--accent-ink:#FFFFFF;--accent-soft:#F8E3E6;--spark:#A97C1E;
+  --nav-bg:#1E2A44;--nav-ink:#B9C0D0;--nav-active:#F2C14E;--nav-border:#1E2A44}
+:root[data-palette="fireworks"]{--bg:#F5F0F4;--surface:#FFFFFF;--sunk:#E9DFE8;--ink:#2A1B33;--muted:#6E6076;--line:#E4D7E3;--accent:#B8336A;--accent-ink:#FFFFFF;--accent-soft:#F6DCE7;--spark:#A97C06;
+  --nav-bg:#2A1B33;--nav-ink:#C9B8D2;--nav-active:#F0C33C;--nav-border:#2A1B33}
+:root[data-palette="monorail"]{--bg:#F4F5F7;--surface:#FFFFFF;--sunk:#E6E8EC;--ink:#15171C;--muted:#5E626B;--line:#DDE0E5;--accent:#C2410C;--accent-ink:#FFFFFF;--accent-soft:#FCE3D9;--spark:#13838E;
+  --nav-bg:#FFFFFF;--nav-ink:#6F737C;--nav-active:#C2410C;--nav-border:#E8542A}
+@media (prefers-color-scheme: dark){
+  :root[data-palette="mainstreet"]:not([data-theme="light"]){--bg:#141A26;--surface:#1C2433;--sunk:#111722;--ink:#EEF0F5;--muted:#A3ABBD;--line:#2C3547;--accent:#F0566B;--accent-ink:#141A26;--accent-soft:#3A2028;--spark:#F2C14E;--nav-bg:#0E1320;--nav-ink:#9AA3B8;--nav-active:#F2C14E;--nav-border:#0E1320}
+  :root[data-palette="fireworks"]:not([data-theme="light"]){--bg:#1A1220;--surface:#241A2C;--sunk:#160F1B;--ink:#F3EAF4;--muted:#B7A6BF;--line:#3A2B44;--accent:#E2669B;--accent-ink:#1A1220;--accent-soft:#3E1E30;--spark:#F0C33C;--nav-bg:#120C17;--nav-ink:#A996B3;--nav-active:#F0C33C;--nav-border:#120C17}
+  :root[data-palette="monorail"]:not([data-theme="light"]){--bg:#111317;--surface:#1A1D23;--sunk:#0E1014;--ink:#F1F2F4;--muted:#A0A5AE;--line:#2B2F37;--accent:#FF7A4D;--accent-ink:#111317;--accent-soft:#3A2318;--spark:#4CC6D2;--nav-bg:#1A1D23;--nav-ink:#8C919B;--nav-active:#FF7A4D;--nav-border:#FF7A4D}
+}
+:root[data-palette="mainstreet"][data-theme="dark"]{--bg:#141A26;--surface:#1C2433;--sunk:#111722;--ink:#EEF0F5;--muted:#A3ABBD;--line:#2C3547;--accent:#F0566B;--accent-ink:#141A26;--accent-soft:#3A2028;--spark:#F2C14E;--nav-bg:#0E1320;--nav-ink:#9AA3B8;--nav-active:#F2C14E;--nav-border:#0E1320}
+:root[data-palette="fireworks"][data-theme="dark"]{--bg:#1A1220;--surface:#241A2C;--sunk:#160F1B;--ink:#F3EAF4;--muted:#B7A6BF;--line:#3A2B44;--accent:#E2669B;--accent-ink:#1A1220;--accent-soft:#3E1E30;--spark:#F0C33C;--nav-bg:#120C17;--nav-ink:#A996B3;--nav-active:#F0C33C;--nav-border:#120C17}
+:root[data-palette="monorail"][data-theme="dark"]{--bg:#111317;--surface:#1A1D23;--sunk:#0E1014;--ink:#F1F2F4;--muted:#A0A5AE;--line:#2B2F37;--accent:#FF7A4D;--accent-ink:#111317;--accent-soft:#3A2318;--spark:#4CC6D2;--nav-bg:#1A1D23;--nav-ink:#8C919B;--nav-active:#FF7A4D;--nav-border:#FF7A4D}
+
+/* the bottom tab bar and the Viewing selector take the palette's own colors */
+@media (max-width:759px){
+  nav.tabs{background:var(--nav-bg);border-top:3px solid var(--nav-border)}
+  nav.tabs a{color:var(--nav-ink)}
+  nav.tabs a[aria-current="page"]{color:var(--nav-active)}
+}
+.viewing .scopebar{background:var(--sunk)}
+.viewing .seg[aria-selected="true"]{background:var(--accent);color:var(--accent-ink);box-shadow:none}
+.count b{color:var(--accent)}
+body,nav.tabs,.panel,.famcard,.leg{transition:background-color .25s ease,color .25s ease}
+@media (prefers-reduced-motion:reduce){body,nav.tabs,.panel,.famcard,.leg{transition:none}}

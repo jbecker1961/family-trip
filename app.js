@@ -3,7 +3,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, onSnapshot, setDoc, updateDoc, deleteDoc, addDoc, FieldPath } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-const APP_VERSION='2026.11.15-9';   // shown at the bottom of Home so you can tell which version a phone has
+const APP_VERSION='2026.11.15-10';   // shown at the bottom of Home so you can tell which version a phone has
 
 // ---------- helpers ----------
 const $=(s,r=document)=>r.querySelector(s);
@@ -269,6 +269,16 @@ function renderHeader(){
 }
 
 // ---------- "Viewing" selector at the very top: Group / each family ----------
+// Each view has its own palette, so it's obvious at a glance whose plans you're looking at.
+const PALETTES={group:'mainstreet',fam1:'fireworks',fam2:'monorail'};
+function applyPalette(){
+  const gate=['config','welcome','locked','loading'].includes(S.mode)&&!S.trip;
+  const pal=gate?'mainstreet':(PALETTES[curScope()]||'mainstreet');
+  const root=document.documentElement;if(root.dataset.palette===pal)return;
+  root.dataset.palette=pal;
+  const bg=getComputedStyle(root).getPropertyValue('--bg').trim();
+  if(bg)document.querySelectorAll('meta[name="theme-color"]').forEach(m=>m.setAttribute('content',bg));
+}
 // The big title under the selector names what you're looking at.
 const viewTitle=()=>{const s=curScope();return s==='group'?'Group':(fam(s)?.name||'Our family')};
 function viewingBar(){
@@ -667,6 +677,7 @@ function render(){
   const view=$('#view'), keep={}, ae=document.activeElement;
   view.querySelectorAll('[data-keep]').forEach(el=>keep[el.id]=el.type==='checkbox'?el.checked:el.value);
   const focusId=ae&&view.contains(ae)&&ae.id?ae.id:null, sel=focusId&&'selectionStart' in ae?[ae.selectionStart,ae.selectionEnd]:null;
+  applyPalette();
   renderHeader();
   const gate=['config','welcome','locked'].includes(S.mode);
   view.innerHTML=S.trip&&!gate?VIEWS[currentTab()]():setupView();
