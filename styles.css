@@ -261,3 +261,10 @@ select.addwho{width:auto;min-height:36px;padding:4px 10px;font-size:16px;border-
 .wlist li.other .wt,.wlist li.other .wtitle{color:var(--muted)}
 .gday .chips{gap:4px}
 @media (min-width:760px){.famgrid{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}}
+
+/* "Viewing" selector at the very top of every screen */
+.viewing{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.viewing .scopebar{margin-bottom:0;background:var(--accent-soft)}
+.viewing .seg{font-size:.95rem;min-height:42px}
+.viewing .seg[aria-selected="true"]{color:var(--accent)}
+.viewcap{font-size:.84rem;font-weight:600;color:var(--ink)}

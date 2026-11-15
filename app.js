@@ -58,6 +58,18 @@ function families(){
   const nm=String(t.name||'').replace(/\s*\b(19|20)\d\d\b\s*/g,' ').replace(/\s+(trip|vacation)$/i,'').trim();
   return[{id:'fam1',name:/family/i.test(nm)?nm:'Our family',hotel:t.hotel||'',arrive:t.start||'',depart:t.end||t.start||'',onsite:!!t.onsite}];
 }
+// One-time setup for this trip: save the families and pre-add the friends travelling with us.
+// Fixed ids, so two phones doing this at the same moment write the same thing.
+const SEED_FAMILIES=[{id:'fam2',name:'Logothetis Family'}];
+let seeded=false;
+function seedFamilies(){
+  const t=S.trip;
+  if(seeded||!t||(Array.isArray(t.families)&&t.families.length))return;
+  seeded=true;
+  const base=families(), first=base[0]||{};
+  const add=SEED_FAMILIES.filter(x=>!base.some(f=>f.id===x.id)).map(x=>({id:x.id,name:x.name,hotel:'',arrive:first.arrive||'',depart:first.depart||'',onsite:false}));
+  store.updateTrip({families:[...base,...add]});
+}
 const fam=id=>families().find(f=>f.id===id);
 const firstFam=()=>families()[0]?.id;
 const famOf=m=>m&&m.family&&fam(m.family)?m.family:firstFam();
@@ -140,7 +152,7 @@ function firestoreStore(db,key){
       const settle=(k,snap)=>{pend[k]=snap.metadata.hasPendingWrites;S.saving=Object.values(pend).some(Boolean);if(!snap.metadata.fromCache)waiting.delete(k);if(!waiting.size){clearTimeout(timer);S.stale=false}if(S.mode==='loading'&&(!waiting.size||(S.cacheOk&&k==='trip'&&snap.exists())))S.mode='shared';render()};
       const timer=setTimeout(()=>{if(waiting.size){S.stale=true;if(S.mode==='loading')S.mode='shared';render()}},10000);
       const fail=e=>{clearTimeout(timer);S.stale=true;if(S.mode==='loading')S.mode='shared';render();console.warn(e)};
-      onSnapshot(trip,{includeMetadataChanges:true},s=>{S.trip=s.exists()?s.data():null;settle('trip',s)},fail);
+      onSnapshot(trip,{includeMetadataChanges:true},s=>{S.trip=s.exists()?s.data():null;settle('trip',s);if(!s.metadata.fromCache)seedFamilies()},fail);
       COLLS.forEach(c=>onSnapshot(col(c),{includeMetadataChanges:true},q=>{S[c]=q.docs.map(d=>({...d.data(),id:d.id}));settle(c,q)},fail));
     },
     // Firestore resolves writes only once the server confirms; offline they would hang, so don't await them in the UI.
@@ -236,7 +248,7 @@ function renderHeader(){
       dates=`${fmtD(a,{month:'short',day:'numeric'})} – ${fmtD(z,{month:'short',day:'numeric',year:'numeric'})}`;
     }
   }
-  $('#head').innerHTML=`<div class="toprow"><div class="tt">
+  $('#head').innerHTML=`${t?viewingBar():''}<div class="toprow"><div class="tt">
       <h1 class="trip-name">${t?esc(t.name||'Our Disney trip'):'Family trip planner'}</h1>
       <div class="trip-sub">${t?esc(dates)+(pill?`${dates?' · ':''}<span class="sync ${pill[0]}"><i></i>${pill[1]}</span>`:''):'Rides, dining and packing for the whole family.'}</div>
     </div>${count}</div>`;
@@ -245,13 +257,22 @@ function renderHeader(){
   $('nav.tabs').hidden=!S.trip||gate;
 }
 
-// ---------- scope bar: Group / families, then people ----------
+// ---------- "Viewing" selector at the very top: Group / each family ----------
+function viewingBar(){
+  const fs=families();if(fs.length<2)return'';
+  const s=curScope(), others=f=>fs.filter(x=>x.id!==f.id).map(x=>shortName(x.name));
+  const cap=s==='group'?`Everyone in the ${listJoin(fs.map(f=>shortName(f.name)))} families, all plans`
+    :`${fam(s).name} plans, plus key plans from the ${listJoin(others(fam(s)))} family`;
+  return`<div class="viewing"><span class="label">Viewing</span>
+    <div class="scopebar" role="tablist" aria-label="Whose plans to show">${[['group','Group'],...fs.map(f=>[f.id,shortName(f.name)])].map(([k,n])=>`<button type="button" class="seg" role="tab" aria-selected="${s===k}" data-act="scope" data-who="${k}">${esc(n)}</button>`).join('')}</div>
+    <div class="viewcap">${esc(cap)}</div></div>`;
+}
+// ---------- people in the current view (all on; tap to hide) ----------
 function scopeBar(){
-  const fs=families(), s=curScope(), ms=scopeMembers(), sel=selected();
-  const seg=fs.length>1?`<div class="scopebar" role="tablist" aria-label="Whose plans">${[['group','Group'],...fs.map(f=>[f.id,f.name])].map(([k,n])=>`<button type="button" class="seg" role="tab" aria-selected="${s===k}" data-act="scope" data-who="${k}">${esc(n)}</button>`).join('')}</div>`:'';
-  if(!ms.length)return seg;
+  const ms=scopeMembers(), sel=selected();
+  if(!ms.length)return'';
   const allOn=sel.length===ms.length, offNames=ms.filter(m=>!sel.includes(m.id)).map(m=>m.name);
-  return`${seg}<div class="filterbar" role="group" aria-label="People shown">
+  return`<div class="filterbar" role="group" aria-label="People shown">
     ${ms.map(m=>`<button type="button" class="chip-btn" style="--mc:${mcol(m.id)}" aria-pressed="${sel.includes(m.id)}" data-act="person" data-who="${m.id}"><span class="av">${initial(m.name)}</span>${esc(m.name)}</button>`).join('')}
     ${allOn?'':'<button type="button" class="chip-btn" data-act="allon">Show everyone</button>'}
   </div>${allOn?'':`<div class="filternote small muted">Hiding plans that only include ${esc(listJoin(offNames,'or'))}</div>`}`;
