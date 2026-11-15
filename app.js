@@ -1,9 +1,9 @@
-import { firebaseConfig } from './firebase-config.js';
+import { firebaseConfig, appConfig } from './firebase-config.js';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, onSnapshot, setDoc, updateDoc, deleteDoc, addDoc, FieldPath } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail, updateProfile, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, query, where, limit, onSnapshot, getDoc, getDocsFromServer, setDoc, updateDoc, deleteDoc, addDoc, FieldPath, terminate, clearIndexedDbPersistence } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-const APP_VERSION='2026.11.15-10';   // shown at the bottom of Home so you can tell which version a phone has
+const APP_VERSION='v2-test.1';   // shown at the bottom of Home so you can tell which version a phone has
 
 // ---------- helpers ----------
 const $=(s,r=document)=>r.querySelector(s);
@@ -23,13 +23,17 @@ const plural=(n,w)=>`${n} ${w}${n===1?'':'s'}`;
 // ---------- trip vocabulary ----------
 const PARKS={
   wdw:[['mk','Magic Kingdom'],['ep','EPCOT'],['hs','Hollywood Studios'],['ak','Animal Kingdom'],['ds','Disney Springs'],['wp','Water park'],['rest','Rest / pool day'],['travel','Travel day']],
-  dl:[['dlp','Disneyland Park'],['dca','California Adventure'],['dtd','Downtown Disney'],['rest','Rest / pool day'],['travel','Travel day']]
+  dl:[['dlp','Disneyland Park'],['dca','California Adventure'],['dtd','Downtown Disney'],['rest','Rest / pool day'],['travel','Travel day']],
+  none:[]
 };
 const PCOLOR={mk:'mk',ep:'ep',hs:'hs',ak:'ak',ds:'ds',wp:'wp',rest:'rest',travel:'travel',dlp:'mk',dca:'ep',dtd:'ds'};
-const RESORTS={wdw:'Walt Disney World',dl:'Disneyland Resort'};
+const RESORTS={wdw:'Walt Disney World',dl:'Disneyland Resort',none:'Other trip (no parks)'};
+const resortOpts=sel=>Object.entries(RESORTS).map(([k,n])=>`<option value="${k}"${k===sel?' selected':''}>${esc(n)}</option>`).join('');
 const parkName=c=>{for(const r of Object.values(PARKS))for(const[k,n]of r)if(k===c)return n;return''};
 const parkOpts=(sel,blank='No park yet')=>`<option value="">${blank}</option>`+PARKS[resort()].map(([k,n])=>`<option value="${k}"${k===sel?' selected':''}>${esc(n)}</option>`).join('');
-const KINDS=['Ride','Lightning Lane','Dining','Show','Character meet','Break','Travel','Other'];
+const KINDS_DISNEY=['Ride','Lightning Lane','Dining','Show','Character meet','Break','Travel','Other'];
+const KINDS_OTHER=['Sightseeing','Dining','Tour','Show','Break','Travel','Other'];
+const kinds=()=>isDisney()?KINDS_DISNEY:KINDS_OTHER;
 const MCOL=['var(--p-mk)','var(--p-ds)','var(--p-ak)','var(--p-ep)','var(--p-hs)','var(--spark)','var(--p-wp)'];
 // Popular attractions with posted minimum heights in inches (0 = any height). Heights change; confirm in the park app.
 const SUGGEST={
@@ -38,13 +42,15 @@ const SUGGEST={
     ['Star Wars: Rise of the Resistance','hs',40],['Millennium Falcon: Smugglers Run','hs',38],['Slinky Dog Dash','hs',38],['The Twilight Zone Tower of Terror','hs',40],["Mickey & Minnie's Runaway Railway",'hs',0],['Toy Story Mania!','hs',0],
     ['Avatar Flight of Passage','ak',44],['Expedition Everest','ak',44],['Kilimanjaro Safaris','ak',0],["Na'vi River Journey",'ak',0],['Kali River Rapids','ak',38]],
   dl:[['Matterhorn Bobsleds','dlp',42],['Indiana Jones Adventure','dlp',46],['Space Mountain','dlp',40],['Star Wars: Rise of the Resistance','dlp',40],['Big Thunder Mountain Railroad','dlp',40],["Peter Pan's Flight",'dlp',0],['Haunted Mansion','dlp',0],
-    ['Radiator Springs Racers','dca',40],['Guardians of the Galaxy – Mission: BREAKOUT!','dca',40],['Incredicoaster','dca',48],['Toy Story Midway Mania!','dca',0],["Soarin' Around the World",'dca',40]]
+    ['Radiator Springs Racers','dca',40],['Guardians of the Galaxy – Mission: BREAKOUT!','dca',40],['Incredicoaster','dca',48],['Toy Story Midway Mania!','dca',0],["Soarin' Around the World",'dca',40]],
+  none:[]
 };
 
 // ---------- state ----------
 const COLLS=['plans','wishes','tasks','packing'];
 const S={trip:null,plans:[],wishes:[],tasks:[],packing:[],mode:'loading',stale:false};
-const resort=()=>S.trip?.resort==='dl'?'dl':'wdw';
+const resort=()=>S.trip?.resort==='dl'||S.trip?.resort==='none'?S.trip.resort:'wdw';
+const isDisney=()=>resort()!=='none';
 const party=()=>Array.isArray(S.trip?.party)?S.trip.party:[];
 const member=id=>party().find(p=>p.id===id);
 const mcol=id=>{const i=party().findIndex(p=>p.id===id);return MCOL[(i<0?0:i)%MCOL.length]};
@@ -61,18 +67,6 @@ function families(){
   // "Becker Family 2027" -> "Becker Family"
   const nm=String(t.name||'').replace(/\s*\b(19|20)\d\d\b\s*/g,' ').replace(/\s+(trip|vacation)$/i,'').trim();
   return[{id:'fam1',name:/family/i.test(nm)?nm:'Our family',hotel:t.hotel||'',arrive:t.start||'',depart:t.end||t.start||'',onsite:!!t.onsite}];
-}
-// One-time setup for this trip: save the families and pre-add the friends travelling with us.
-// Fixed ids, so two phones doing this at the same moment write the same thing.
-const SEED_FAMILIES=[{id:'fam2',name:'Logothetis Family'}];
-let seeded=false;
-function seedFamilies(){
-  const t=S.trip;
-  if(seeded||!t||(Array.isArray(t.families)&&t.families.length))return;
-  seeded=true;
-  const base=families(), first=base[0]||{};
-  const add=SEED_FAMILIES.filter(x=>!base.some(f=>f.id===x.id)).map(x=>({id:x.id,name:x.name,hotel:'',arrive:'',depart:'',onsite:false}));
-  store.updateTrip({families:[...base,...add]});
 }
 const fam=id=>families().find(f=>f.id===id);
 const firstFam=()=>families()[0]?.id;
@@ -141,28 +135,38 @@ const newItemFam=personId=>personId&&member(personId)?famOf(member(personId)):(c
 // Parks and hotels are per family, per day.
 const famPark=(fid,d)=>S.trip.famParks?.[fid]?.[d]||(fid===firstFam()?S.trip.dayParks?.[d]:'')||'';
 const famHotel=(fid,d)=>String(S.trip.famHotels?.[fid]?.[d]||(fid===firstFam()?S.trip.dayHotels?.[d]:'')||fam(fid)?.hotel||'').trim();
-// ---------- trip link ----------
-// Each trip lives at trips/<key> in Firestore and has its own sign-in account, <key>@trips.example.com,
-// whose password is the trip password. firestore.rules only lets that account read or write the trip,
-// so the link alone shows nothing. The email address is never mailed to; it just names the account.
-const KEY_RE=/^[a-z0-9]{24,64}$/;
-const tripEmail=k=>`${k}@trips.example.com`;
-const tripKey=()=>{const k=new URLSearchParams(location.search).get('t');return k&&KEY_RE.test(k)?k:null};
-const shareUrl=()=>{const u=new URL(location.href);u.hash='';u.search='?t='+tripKey();return u.toString()};
+// ---------- accounts ----------
+// Everyone signs in with their own email. A new account stays "pending" until the admin approves it,
+// and firestore.rules lets a pending account read or write nothing. A trip lists the emails that can open it.
+const ME={user:null,email:'',profile:null,admin:false};
+const D={trips:[],fams:[],users:[]};            // dashboard data: my trips, my saved families, accounts (admin only)
+const normEmail=s=>String(s||'').trim().toLowerCase();
+const EMAIL_RE=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const myEmail=()=>ME.email;
+const myName=()=>String(ME.profile?.name||ME.user?.displayName||ME.email.split('@')[0]||'Me').slice(0,40);
+const tripId=()=>{const k=new URLSearchParams(location.search).get('trip');return k&&/^[A-Za-z0-9]{10,40}$/.test(k)?k:null};
+const shareUrl=()=>{const u=new URL(location.href);u.hash='';u.search='?trip='+tripId();return u.toString()};
+const members=()=>Array.isArray(S.trip?.members)?S.trip.members:[];
+const isOwner=()=>!!S.trip&&S.trip.owner===myEmail();
+const meInParty=()=>party().find(m=>m.email&&normEmail(m.email)===myEmail());
+// Screens that aren't a trip: sign-in steps, the dashboard and approvals.
+const GATES=['config','boot','signin','signup','reset','verify','pending','denied','dash','noaccess'];
+const gated=()=>GATES.includes(S.mode);
 
 // ---------- shared store (Firestore) ----------
 let store=null;
 function flatArgs(d){const out=[];const walk=(o,p)=>{for(const k in o){const v=o[k];if(v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).length)walk(v,[...p,k]);else out.push(new FieldPath(...p,k),v)}};walk(d,[]);return out}
-function firestoreStore(db,key){
-  const base=['trips',key], trip=doc(db,...base,'meta','info'), col=c=>collection(db,...base,c);
+function firestoreStore(db,id){
+  const base=['trips',id], trip=doc(db,...base), col=c=>collection(db,...base,c);
   const pend={};
   return{
     watch(){
       const waiting=new Set(['trip',...COLLS]);
       const settle=(k,snap)=>{pend[k]=snap.metadata.hasPendingWrites;S.saving=Object.values(pend).some(Boolean);if(!snap.metadata.fromCache)waiting.delete(k);if(!waiting.size){clearTimeout(timer);S.stale=false}if(S.mode==='loading'&&(!waiting.size||(S.cacheOk&&k==='trip'&&snap.exists())))S.mode='shared';render()};
       const timer=setTimeout(()=>{if(waiting.size){S.stale=true;if(S.mode==='loading')S.mode='shared';render()}},10000);
-      const fail=e=>{clearTimeout(timer);S.stale=true;if(S.mode==='loading')S.mode='shared';render();console.warn(e)};
-      onSnapshot(trip,{includeMetadataChanges:true},s=>{S.trip=s.exists()?s.data():null;settle('trip',s);if(!s.metadata.fromCache)seedFamilies()},fail);
+      // Not on this trip (or it was deleted): the server refuses, so show "not available".
+      const fail=e=>{clearTimeout(timer);console.warn(e);if(e?.code==='permission-denied'){S.trip=null;S.mode='noaccess';render();return}S.stale=true;if(S.mode==='loading')S.mode='shared';render()};
+      onSnapshot(trip,{includeMetadataChanges:true},s=>{S.trip=s.exists()?{...s.data(),id:s.id}:null;settle('trip',s);if(!s.exists()&&!s.metadata.fromCache){S.mode='noaccess';render()}},fail);
       COLLS.forEach(c=>onSnapshot(col(c),{includeMetadataChanges:true},q=>{S[c]=q.docs.map(d=>({...d.data(),id:d.id}));settle(c,q)},fail));
     },
     // Firestore resolves writes only once the server confirms; offline they would hang, so don't await them in the UI.
@@ -173,7 +177,7 @@ function firestoreStore(db,key){
   };
 }
 // Resolve right away (the write is already applied locally); report a failure if the server later refuses it.
-function quick(p){p.catch(e=>{console.warn(e);toast(e?.code==='permission-denied'?'That change was refused. Check that the trip link is complete.':'That change didn’t save. It will retry when you’re back online.')});return Promise.resolve()}
+function quick(p){p.catch(e=>{console.warn(e);toast(e?.code==='permission-denied'?'That change was refused. You may no longer have access.':'That change didn’t save. It will retry when you’re back online.')});return Promise.resolve()}
 async function act(p,ok){
   try{await p;if(ok)toast(ok)}
   catch(e){console.warn(e);toast('That change didn’t save. Try again.')}
@@ -213,7 +217,7 @@ function confirmTap(b,key){
 
 // ---------- booking windows (per family: they depend on arrival date and hotel) ----------
 function windows(f){
-  if(!f||!validDate(f.arrive))return[];
+  if(!f||!validDate(f.arrive)||!isDisney())return[];
   const a=f.arrive, z=validDate(f.depart)?f.depart:a, on=!!f.onsite, out=[];
   if(resort()==='wdw'){
     out.push(on
@@ -241,7 +245,7 @@ const calBox=d=>`<div class="cal"><div class="m">${esc(pd(d).toLocaleDateString(
 
 // ---------- header & tabs ----------
 function renderHeader(){
-  const gate=['config','welcome','locked'].includes(S.mode), t=gate?null:S.trip;
+  const gate=gated(), t=gate?null:S.trip;
   const pill=gate?null
     :!navigator.onLine?['offline','Offline · changes will sync later']
     :S.saving?['offline','Saving…']
@@ -259,9 +263,13 @@ function renderHeader(){
       dates=`${fmtD(a,{month:'short',day:'numeric'})} – ${fmtD(z,{month:'short',day:'numeric',year:'numeric'})}`;
     }
   }
-  $('#head').innerHTML=`${t?viewingBar():''}<div class="toprow"><div class="tt">
-      <h1 class="trip-name">${t?esc(viewTitle()):'Family trip planner'}</h1>
-      <div class="trip-sub">${t?esc(dates)+(pill?`${dates?' · ':''}<span class="sync ${pill[0]}"><i></i>${pill[1]}</span>`:''):'Rides, dining and packing for the whole family.'}</div>
+  const admin=S.mode==='dash'&&location.hash==='#admin'&&ME.admin;
+  const gh=admin?['Approvals','Only you can see this page.']:S.mode==='dash'?['My trips',`Signed in as ${myEmail()}`]:['Trip planner','Every trip, every family, one place.'];
+  const flag=appConfig?.testBanner?'<div class="testflag">Test version · not the live trip</div>':'';
+  const crumbs=t||(tripId()&&S.mode==='loading')?`<div class="crumbs"><a href="./" class="linkbtn">‹ My trips</a>${t?`<span class="tripnm">${esc(t.name||'')}</span>`:''}</div>`:'';
+  $('#head').innerHTML=`${flag}${crumbs}${t?viewingBar():''}<div class="toprow"><div class="tt">
+      <h1 class="trip-name">${t?esc(viewTitle()):esc(gh[0])}</h1>
+      <div class="trip-sub">${t?esc(dates)+(pill?`${dates?' · ':''}<span class="sync ${pill[0]}"><i></i>${pill[1]}</span>`:''):esc(gh[1])}</div>
     </div>${count}</div>`;
   const tab=currentTab();
   $('#tabs').innerHTML=S.trip?TABS.map(([k,n,ic])=>`<a href="#${k}"${k===tab?' aria-current="page"':''}>${ICON(ic)}<span>${n}</span></a>`).join(''):'';
@@ -270,10 +278,11 @@ function renderHeader(){
 
 // ---------- "Viewing" selector at the very top: Group / each family ----------
 // Each view has its own palette, so it's obvious at a glance whose plans you're looking at.
-const PALETTES={group:'mainstreet',fam1:'fireworks',fam2:'monorail'};
+const FAM_PALETTES=['fireworks','monorail'];
+const paletteFor=s=>{if(s==='group')return'mainstreet';const i=families().findIndex(f=>f.id===s);return i<0?'mainstreet':FAM_PALETTES[i%FAM_PALETTES.length]};
 function applyPalette(){
-  const gate=['config','welcome','locked','loading'].includes(S.mode)&&!S.trip;
-  const pal=gate?'mainstreet':(PALETTES[curScope()]||'mainstreet');
+  const gate=gated()||!S.trip;
+  const pal=gate?'mainstreet':paletteFor(curScope());
   const root=document.documentElement;if(root.dataset.palette===pal)return;
   root.dataset.palette=pal;
   const bg=getComputedStyle(root).getPropertyValue('--bg').trim();
@@ -293,6 +302,7 @@ function scopeBar(){
   const on=filtering(), sel=selected(), names=ms.filter(m=>sel.includes(m.id)).map(m=>m.name);
   return`<div class="filterbar" role="group" aria-label="Whose itinerary">
     <button type="button" class="chip-btn every" aria-pressed="${!on}" data-act="allon">Everyone</button>
+    ${meInParty()&&ms.some(m=>m.id===meInParty().id)&&!(sel.length===1&&sel[0]===meInParty().id)?'<button type="button" class="chip-btn every" aria-pressed="false" data-act="justme">Just me</button>':''}
     ${ms.map(m=>`<button type="button" class="chip-btn" style="--mc:${mcol(m.id)}" aria-pressed="${on&&sel.includes(m.id)}" data-act="person" data-who="${m.id}"><span class="av">${initial(m.name)}</span>${esc(m.name)}</button>`).join('')}
   </div>${on
     ?`<div class="filternote"><span><b>${esc(listJoin(names))}’s itinerary</b>, including plans with others.</span><button type="button" class="linkbtn" data-act="allon">Show everyone</button></div>`
@@ -315,6 +325,7 @@ function hotelNotes(d){
 }
 const parkChip=(c,prefix='')=>c&&parkName(c)?`<span class="chip park" style="--pc:var(--p-${PCOLOR[c]||'rest'})">${prefix?esc(prefix)+' · ':''}${esc(parkName(c))}</span>`:'';
 function parkChips(d){
+  if(!isDisney())return'';
   const fs=scopeFams(), many=fs.length>1;
   const out=fs.map(f=>parkChip(famPark(f.id,d),many?shortName(f.name):'')).filter(Boolean).join('');
   return out||'<span class="chip">No park yet</span>';
@@ -322,8 +333,9 @@ function parkChips(d){
 
 // ---------- calendar export ----------
 // Times are park-local, so events carry the resort's time zone. Re-adding an event updates it (same UID).
-const TZ=()=>resort()==='dl'?'America/Los_Angeles':'America/New_York';
-const DUR={Dining:90,Show:45,Travel:120,Break:120,'Character meet':30,'Lightning Lane':30,Ride:30,Other:60};
+// Other trips use "floating" local times: 7 PM stays 7 PM wherever the phone is.
+const TZ=()=>resort()==='dl'?'America/Los_Angeles':resort()==='wdw'?'America/New_York':'';
+const DUR={Sightseeing:120,Tour:120,Dining:90,Show:45,Travel:120,Break:120,'Character meet':30,'Lightning Lane':30,Ride:30,Other:60};
 function evTimes(p){
   if(!p.time)return{allDay:true,start:p.date.replace(/-/g,''),end:addDays(p.date,1).replace(/-/g,'')};
   const[h,m]=p.time.split(':').map(Number);
@@ -337,12 +349,12 @@ const evPlace=p=>parkName(famPark(planFams(p)[0]||firstFam(),p.date));
 const icsEsc=v=>String(v).replace(/\\/g,'\\\\').replace(/\r?\n/g,'\\n').replace(/([,;])/g,'\\$1');
 function icsFor(plans){
   const now=new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d+/,'');
-  const L=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Family Disney Trip//EN','CALSCALE:GREGORIAN','METHOD:PUBLISH'];
+  const L=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Family Trip Planner//EN','CALSCALE:GREGORIAN','METHOD:PUBLISH'];
   for(const p of plans){
     const t=evTimes(p), place=evPlace(p);
     L.push('BEGIN:VEVENT',`UID:${p.id}@family-trip`,`DTSTAMP:${now}`,
-      t.allDay?`DTSTART;VALUE=DATE:${t.start}`:`DTSTART;TZID=${TZ()}:${t.start}`,
-      t.allDay?`DTEND;VALUE=DATE:${t.end}`:`DTEND;TZID=${TZ()}:${t.end}`,
+      t.allDay?`DTSTART;VALUE=DATE:${t.start}`:TZ()?`DTSTART;TZID=${TZ()}:${t.start}`:`DTSTART:${t.start}`,
+      t.allDay?`DTEND;VALUE=DATE:${t.end}`:TZ()?`DTEND;TZID=${TZ()}:${t.end}`:`DTEND:${t.end}`,
       `SUMMARY:${icsEsc(p.title)}`,`DESCRIPTION:${icsEsc(evDetails(p))}`,...(place?[`LOCATION:${icsEsc(place)}`]:[]),'END:VEVENT');
   }
   L.push('END:VCALENDAR');return L.join('\r\n');
@@ -356,7 +368,7 @@ function saveIcs(plans,name){
 }
 function gcalUrl(p){
   const t=evTimes(p), q=new URLSearchParams({action:'TEMPLATE',text:p.title,dates:`${t.start}/${t.end}`,details:evDetails(p)});
-  if(!t.allDay)q.set('ctz',TZ());
+  if(!t.allDay&&TZ())q.set('ctz',TZ());
   const place=evPlace(p);if(place)q.set('location',place);
   return'https://calendar.google.com/calendar/render?'+q.toString();
 }
@@ -412,38 +424,196 @@ function planRow(p){
 const visiblePlans=d=>dayPlans(d).filter(p=>vis(p));
 
 // ---------- views ----------
+const authErr=()=>S.authErr?`<div class="chip bad" role="alert" style="white-space:normal">${esc(S.authErr)}</div>`:'';
+const busyBtn=(label,busyLabel)=>`<button class="btn" type="submit"${S.busy?' disabled':''}>${S.busy?busyLabel:label}</button>`;
+const adminName=()=>esc(appConfig?.adminName||'the organizer');
 function setupView(){
-  if(S.mode==='config')return`<div class="panel welcome"><h2>Finish connecting the database</h2>
+  const m=S.mode;
+  if(m==='config')return`<div class="panel welcome"><h2>Finish connecting the database</h2>
     <p class="muted">This copy of the planner doesn’t have its Firebase settings yet, so it can’t save anything.</p>
     <p class="fine">The README walks through each step.</p></div>`;
-  if(S.mode==='welcome'){
-    const last=ls.get('trip-last',null);
-    return`<div class="panel welcome"><h2>Family trip planner</h2>
-      <p class="muted">Open the trip link you were sent, then enter the trip password. You only need to do this once on each device.</p>
-      ${last&&KEY_RE.test(last)?`<div><a class="btn" href="?t=${esc(last)}">Open my trip</a></div>`:''}
-      <p class="fine">Don’t have the link or password? Ask the trip organizer.</p></div>`;
+  if(m==='boot')return`<div class="panel setup"><p class="muted">Signing you in…</p>${authErr()}</div>`;
+  if(m==='signin')return`<div class="panel welcome"><h2>Sign in</h2>
+    <form class="form" data-form="signin">
+      <label class="field wide"><span>Email</span><input type="email" id="a-email" data-keep autocomplete="username" required></label>
+      <label class="field wide"><span>Password</span><input type="password" id="a-pw" autocomplete="current-password" required></label>
+      <div class="wide">${busyBtn('Sign in','Signing in…')}</div></form>${authErr()}
+    <div class="authlinks"><button type="button" class="linkbtn" data-act="go" data-who="signup">Create an account</button><button type="button" class="linkbtn" data-act="go" data-who="reset">Forgot password?</button></div></div>`;
+  if(m==='signup')return`<div class="panel welcome"><h2>Create your account</h2>
+    <p class="muted small">Use your own email. ${adminName()} approves every new account before it can see any trip.</p>
+    <form class="form" data-form="signup">
+      <label class="field wide"><span>Your name</span><input type="text" id="a-name" data-keep autocomplete="name" maxlength="40" required></label>
+      <label class="field wide"><span>Email</span><input type="email" id="a-email" data-keep autocomplete="username" required></label>
+      <label class="field wide"><span>Password (at least 8 characters)</span><input type="password" id="a-pw" autocomplete="new-password" minlength="8" required></label>
+      <div class="wide">${busyBtn('Create account','Creating…')}</div></form>${authErr()}
+    <div class="authlinks"><button type="button" class="linkbtn" data-act="go" data-who="signin">I already have an account</button></div></div>`;
+  if(m==='reset')return`<div class="panel welcome"><h2>Reset your password</h2>
+    <p class="muted small">We’ll email you a link to choose a new password.</p>
+    <form class="form inline" data-form="reset"><input type="email" id="a-email" data-keep autocomplete="username" aria-label="Email" placeholder="Email" required>${busyBtn('Send link','Sending…')}</form>${authErr()}
+    <div class="authlinks"><button type="button" class="linkbtn" data-act="go" data-who="signin">Back to sign in</button></div></div>`;
+  if(m==='verify')return`<div class="panel welcome"><h2>Check your email</h2>
+    <p class="muted">We sent a link to <b>${esc(myEmail())}</b>. Tap it to confirm the address is yours, then come back here.</p>
+    <div class="authlinks"><button class="btn" type="button" data-act="verified"${S.busy?' disabled':''}>I tapped the link</button><button class="btn ghost" type="button" data-act="resend">Send it again</button></div>
+    <p class="fine">Not there? Check spam. <button type="button" class="linkbtn" data-act="signout">Use a different email</button></p></div>`;
+  if(m==='pending'){
+    const ph=String(appConfig?.adminPhone||'').replace(/[^\d+]/g,''), body=`Hi! I just made an account on the trip planner: ${myName()} (${myEmail()}). Can you approve it?`;
+    return`<div class="panel welcome"><h2>Waiting for approval</h2>
+      <p class="muted">Thanks, ${esc(myName())}. ${adminName()} needs to approve <b>${esc(myEmail())}</b> before you can see any trips. This page opens up by itself once that happens.</p>
+      ${ph?`<div><a class="btn" href="sms:${esc(ph)}?&amp;body=${encodeURIComponent(body)}">Let ${adminName()} know</a></div>`:''}
+      <p class="fine"><button type="button" class="linkbtn" data-act="signout">Sign out</button></p></div>`;
   }
-  if(S.mode==='locked')return`<div class="panel welcome"><h2>Enter the trip password</h2>
-    <p class="muted">This trip is password protected. Ask whoever sent you the link for the password. You only need to enter it once on this device.</p>
-    <form class="form inline" data-form="unlock">
-      <input type="password" id="u-pw" autocomplete="current-password" aria-label="Trip password" placeholder="Trip password" required>
-      <button class="btn" type="submit"${S.busy?' disabled':''}>${S.busy?'Checking…':'Open trip'}</button>
-    </form>${S.authErr?`<div class="chip bad" role="alert" style="white-space:normal">${esc(S.authErr)}</div>`:''}</div>`;
-  if(S.mode==='loading')return`<div class="panel setup"><p class="muted">Loading your trip…</p></div>`;
-  if(S.stale)return`<div class="panel setup"><h2>Can’t reach the shared trip yet</h2><p class="muted">The plan will appear here as soon as the connection comes back.</p></div>`;
-  return`<div class="panel setup">
-    <div><h2>Start your trip</h2><p class="muted small">You can add more families later from Home.</p></div>
-    <form class="form" data-form="setup">
-      <label class="field wide"><span>Trip name</span><input type="text" id="s-name" placeholder="Spring break 2027" required></label>
-      <label class="field wide"><span>Your family’s name</span><input type="text" id="s-fam" placeholder="Becker Family" required></label>
-      <label class="field"><span>Resort</span><select id="s-resort"><option value="wdw">Walt Disney World</option><option value="dl">Disneyland Resort</option></select></label>
-      <label class="field"><span>Hotel</span><input type="text" id="s-hotel" placeholder="Where you’re staying"></label>
-      <label class="field"><span>Arrive</span><input type="date" id="s-start" required></label>
-      <label class="field"><span>Leave</span><input type="date" id="s-end" required></label>
-      <label class="check wide"><input type="checkbox" id="s-onsite">Staying at a Disney-owned hotel</label>
-      <label class="field wide"><span>Who’s going (one name per line)</span><textarea id="s-party" rows="4" placeholder="Mom&#10;Dad&#10;Ava"></textarea></label>
-      <div class="wide"><button class="btn" type="submit">Start planning</button></div>
-    </form></div>`;
+  if(m==='denied')return`<div class="panel welcome"><h2>This account isn’t approved</h2>
+    <p class="muted">${esc(myEmail())} can’t open any trips. If you think that’s a mistake, ask ${adminName()}.</p>
+    <p class="fine"><button type="button" class="linkbtn" data-act="signout">Sign out</button></p></div>`;
+  if(m==='noaccess')return`<div class="panel welcome"><h2>This trip isn’t available</h2>
+    <p class="muted">Either you haven’t been added to it, or it was deleted. Ask whoever planned it to add <b>${esc(myEmail())}</b>.</p>
+    <div><a class="btn" href="./">Go to my trips</a></div></div>`;
+  if(m==='dash')return location.hash==='#admin'&&ME.admin?adminView():dashboardView();
+  if(m==='loading')return`<div class="panel setup"><p class="muted">Loading your trip…</p></div>`;
+  if(S.stale)return`<div class="panel setup"><h2>Can’t reach the trip yet</h2><p class="muted">The plan will appear here as soon as the connection comes back.</p></div>`;
+  return`<div class="panel setup"><p class="muted">This trip has no details yet.</p><div><a class="btn" href="./">Go to my trips</a></div></div>`;
+}
+
+// ---------- dashboard: my trips and my families ----------
+// A trip's dates run from the earliest family arrival to the latest departure.
+function tripSpan(t){
+  const fs=Array.isArray(t.families)?t.families:[];
+  const ds=fs.flatMap((f,i)=>i===0||f.datesSet?[f.arrive,f.depart]:[]).filter(validDate).sort();
+  return ds.length?[ds[0],ds[ds.length-1]]:null;
+}
+function tripCard(t){
+  const r=tripSpan(t), fs=(t.families||[]).map(f=>f.name).filter(Boolean);
+  const when=r?`${fmtD(r[0],{month:'short',day:'numeric'})} – ${fmtD(r[1],{month:'short',day:'numeric',year:'numeric'})}`:'Dates not set';
+  const n=r?diff(today(),r[0]):null, soon=r&&n>0?`<span class="chip">${plural(n,'day')} to go</span>`:r&&today()<=r[1]&&n<=0?'<span class="chip good">Happening now</span>':'';
+  return`<a class="tripcard" href="?trip=${esc(t.id)}"><span class="tcname">${esc(t.name||'Untitled trip')}</span>
+    <span class="small muted">${esc(when)} · ${esc(RESORTS[t.resort]||RESORTS.wdw)}</span>
+    ${fs.length?`<span class="small">${esc(listJoin(fs))}</span>`:''}
+    <span class="chips">${soon}${t.owner&&t.owner!==myEmail()?`<span class="chip">Shared by ${esc(t.owner)}</span>`:''}</span></a>`;
+}
+const fgPeople=F=>Array.isArray(F.people)?F.people:[];
+const fgEditors=people=>[...new Set([myEmail(),...people.map(p=>normEmail(p.email)).filter(e=>EMAIL_RE.test(e))])];
+function newTripForm(){
+  const meIn=D.fams.some(F=>fgPeople(F).some(p=>normEmail(p.email)===myEmail()));
+  const pick=F=>{const ps=fgPeople(F);return ps.length?`<fieldset class="wide whopick"><legend>${esc(F.name)} <button type="button" class="linkbtn" data-act="ntall" data-id="${esc(F.id)}">Everyone</button></legend>
+    ${ps.map(p=>`<label class="check"><input type="checkbox" id="nt-${esc(F.id)}-${esc(p.id)}" data-keep data-nt="${esc(F.id)}|${esc(p.id)}"${normEmail(p.email)===myEmail()?' checked':''}>${esc(p.name)}</label>`).join('')}</fieldset>`:''};
+  return`<details class="addbox" id="newtrip"${openAttr('newtrip',!D.trips.length)}><summary class="btn">+ New trip</summary>
+    <form class="form" data-form="newtrip">
+      <label class="field wide"><span>Trip name</span><input type="text" id="nt-name" data-keep maxlength="60" placeholder="London 2027" required></label>
+      <label class="field wide"><span>Type</span><select id="nt-type" data-keep>${resortOpts('none')}</select></label>
+      <label class="field"><span>Arrive</span><input type="date" id="nt-start" data-keep></label>
+      <label class="field"><span>Leave</span><input type="date" id="nt-end" data-keep></label>
+      ${D.fams.length?`<div class="wide small muted">Who’s going? Only the people you tick can see this trip. People without an email are just names on the plan.</div>${D.fams.map(pick).join('')}`
+        :'<div class="wide small muted">Just you for now. Save your family under “My families” to add them in one tap.</div>'}
+      ${meIn?'':`<div class="wide fine">You’re added automatically, as ${esc(myName())}.</div>`}
+      <div class="wide">${busyBtn('Create trip','Creating…')}</div>
+    </form></details>`;
+}
+function famGroupCard(F){
+  const ps=fgPeople(F), id=esc(F.id);
+  return`<div class="famcard"><div class="famhead"><h3>${esc(F.name)}</h3><span class="small muted">${ps.length?plural(ps.length,'person'):'No one yet'}</span></div>
+    <div class="list">${ps.map(p=>`<div class="row"><div class="body"><div class="title">${esc(p.name)}</div><div class="small muted">${p.email?esc(p.email):'No login (just a name)'}</div></div>${delBtn('fgpdel',`${id}|${esc(p.id)}`,'',p.name)}</div>`).join('')}</div>
+    <details id="fgadd-${id}"${openAttr('fgadd-'+F.id,!ps.length)}><summary class="small">+ Add a person</summary>
+      <form class="form" data-form="fgperson" data-fam="${id}" style="margin-top:8px">
+        <label class="field"><span>Name</span><input type="text" id="fg-name-${id}" data-keep maxlength="40" required></label>
+        <label class="field"><span>Email (optional)</span><input type="email" id="fg-email-${id}" data-keep placeholder="For their own login"></label>
+        <div class="wide"><button class="btn" type="submit">Add</button></div></form></details>
+    <details id="fgedit-${id}"${openAttr('fgedit-'+F.id,false)}><summary class="small">Rename or delete</summary>
+      <form class="form inline" data-form="fgrename" data-fam="${id}" style="margin-top:8px"><input type="text" id="fg-rn-${id}" data-keep value="${esc(F.name)}" aria-label="Family name" maxlength="60" required><button class="btn" type="submit">Save</button></form>
+      <div style="margin-top:8px">${delBtn('fgdel',id,'',F.name).replace('class="x"','class="x wide"').replace('>×<','>Delete this family<')}</div>
+      <p class="fine">Deleting a saved family doesn’t change any trip.</p></details>
+  </div>`;
+}
+function dashboardView(){
+  const sorted=[...D.trips].sort((a,b)=>{const x=tripSpan(a),y=tripSpan(b);return(x?x[0]:'9')<(y?y[0]:'9')?-1:1});
+  const done=t=>{const r=tripSpan(t);return r&&r[1]<today()};
+  const upcoming=sorted.filter(t=>!done(t)), past=sorted.filter(done).reverse();
+  const pend=D.users.filter(u=>u.status==='pending').length;
+  return`<div class="grid">
+    ${ME.admin?`<a class="panel span2 approvals" href="#admin"><b>Approvals</b>${pend?`<span class="badge">${pend} waiting</span>`:'<span class="small muted">No one waiting</span>'}</a>`:''}
+    <section class="panel span2"><div class="panel-head"><h2>Trips</h2><span class="fine">Only trips you’re on</span></div>
+      <div class="tripcards">${upcoming.map(tripCard).join('')||'<div class="empty">No upcoming trips yet.</div>'}</div>
+      ${past.length?`<details id="pasttrips"${openAttr('pasttrips',false)}><summary class="small">Past trips (${past.length})</summary><div class="tripcards" style="margin-top:8px">${past.map(tripCard).join('')}</div></details>`:''}
+      ${newTripForm()}</section>
+    <section class="panel span2"><div class="panel-head"><h2>My families</h2><span class="fine">Saved groups for adding people to trips</span></div>
+      <div class="famgrid">${D.fams.map(famGroupCard).join('')}</div>
+      <details id="fgnew"${openAttr('fgnew',!D.fams.length)}><summary class="small">+ New family</summary>
+        <form class="form inline" data-form="fgnew" style="margin-top:8px"><input type="text" id="fg-new" data-keep placeholder="Becker Family" aria-label="Family name" maxlength="60" required><button class="btn" type="submit">Create</button></form>
+        <p class="fine">Anyone in a family with an email can see and edit that family’s list. You’re added to new families automatically.</p></details></section>
+    <section class="panel span2"><div class="panel-head"><h2>Account</h2></div>
+      <div class="small">${esc(myName())} · ${esc(myEmail())}</div>
+      <div><button class="btn ghost small" data-act="signout">Sign out</button></div>
+      <div class="fine">App version ${APP_VERSION}</div></section></div>`;
+}
+
+// Builds the new trip from the ticked people. Their saved families become the trip's families,
+// and everyone with an email (plus you) can open it.
+async function createTrip(f){
+  const name=val('nt-name').slice(0,60), type=RESORTS[val('nt-type')]?val('nt-type'):'none', a=val('nt-start'), z=val('nt-end')||a;
+  if(!name){toast('Give the trip a name.');return}
+  if(validDate(a)&&z<a){toast('The leave date is before the arrival date.');return}
+  if(!navigator.onLine){toast('Connect to the internet to create a trip.');return}
+  const picks=[...f.querySelectorAll('[data-nt]')].filter(c=>c.checked).map(c=>c.dataset.nt.split('|'));
+  const fl=[], ppl=[];
+  for(const[fid,pid]of picks){
+    const F=D.fams.find(x=>x.id===fid), p=F&&fgPeople(F).find(x=>x.id===pid);
+    if(!p||ppl.some(x=>x.id===p.id))continue;
+    if(!fl.some(x=>x.id===F.id))fl.push({id:F.id,name:F.name});
+    ppl.push({id:p.id,name:p.name,height:null,family:F.id,...(p.email?{email:normEmail(p.email)}:{})});
+  }
+  // You're on the plan unless you're in a saved family and unticked yourself (planning for others).
+  const meIn=D.fams.some(F=>fgPeople(F).some(p=>normEmail(p.email)===myEmail()));
+  if(!ppl.length||(!meIn&&!ppl.some(p=>p.email===myEmail()))){const sid=uid();fl.push({id:sid,name:myName()});ppl.push({id:uid(),name:myName(),height:null,family:sid,email:myEmail()})}
+  const dated=validDate(a);
+  const trip={name,resort:type,
+    families:fl.map(x=>({...x,hotel:'',arrive:dated?a:'',depart:dated?z:'',onsite:false,datesSet:dated})),
+    party:ppl,members:[...new Set([myEmail(),...ppl.map(p=>p.email).filter(Boolean)])],owner:myEmail(),created:new Date().toISOString()};
+  const ref=doc(collection(db,'trips'));
+  S.busy=true;render();
+  try{await setDoc(ref,trip);location.href='?trip='+ref.id}
+  catch(e){console.warn(e);S.busy=false;render();toast('Couldn’t create the trip. Try again.')}
+}
+// ---------- approvals (admin only; the rules enforce it, this page just hides itself from others) ----------
+function adminView(){
+  const order={pending:0,approved:1,denied:2};
+  const us=[...D.users].sort((a,b)=>(order[a.status]??3)-(order[b.status]??3)||String(b.created||'').localeCompare(String(a.created||'')));
+  const chip={pending:'<span class="chip warn">Waiting</span>',approved:'<span class="chip good">Approved</span>',denied:'<span class="chip bad">Denied</span>'};
+  return`<div class="grid"><section class="panel span2"><div class="panel-head"><h2>Accounts</h2><a href="#" class="link">‹ My trips</a></div>
+    <p class="small muted" style="margin:0">New accounts can’t see anything until you approve them. Denying or removing access takes effect right away.</p>
+    <div class="list">${us.map(u=>`<div class="row"><div class="body"><div class="title">${esc(u.name||'(no name)')}</div>
+      <div class="small muted">${esc(u.email||'')}${u.created?' · signed up '+esc(fmtD(String(u.created).slice(0,10),{month:'short',day:'numeric'})):''}</div>
+      <div class="meta">${chip[u.status]||''}</div>
+      <div class="row-actions">${u.email===myEmail()?'<span class="fine">That’s you</span>'
+        :u.status==='approved'?`<button class="x wide" type="button" data-act="deny" data-id="${esc(u.id)}">Remove access</button>`
+        :`<button class="btn small" type="button" data-act="approve" data-id="${esc(u.id)}">Approve</button>${u.status==='pending'?`<button class="btn ghost small" type="button" data-act="denynow" data-id="${esc(u.id)}">Deny</button>`:''}`}</div>
+      </div></div>`).join('')||'<div class="empty">No accounts yet.</div>'}</div>
+    <p class="fine">To delete a login completely, use the Firebase console: Authentication &gt; Users.</p></section></div>`;
+}
+
+// ---------- who can open this trip ----------
+function accessPanel(){
+  const ms=members(), own=isOwner(), byEmail=e=>party().find(p=>p.email&&normEmail(p.email)===e);
+  const noEmail=party().filter(p=>!p.email);
+  const imp=D.fams.filter(F=>fgPeople(F).some(p=>!party().some(x=>x.id===p.id)));
+  return`<section class="panel"><div class="panel-head"><h2>Who can open this trip</h2><span class="fine">${plural(ms.length,'person')}</span></div>
+    <div class="list">${ms.map(e=>{const p=byEmail(e);return`<div class="row"><div class="body"><div class="title">${esc(p?.name||e)}</div>
+      <div class="small muted">${p?esc(e)+' · ':''}${e===S.trip.owner?'Planner':'Can view and edit'}${e===myEmail()?' · you':''}</div></div>
+      ${own&&e!==S.trip.owner?delBtn('memdel',esc(e),'',p?.name||e):''}</div>`}).join('')}</div>
+    <details id="memadd"${openAttr('memadd',false)}><summary class="small">+ Add someone by email</summary>
+      <form class="form" data-form="memadd" style="margin-top:8px">
+        <label class="field wide"><span>Their email</span><input type="email" id="ma-email" data-keep required></label>
+        <label class="field wide"><span>On the plan as</span><select id="ma-as" data-keep>
+          <option value="">Not on the plan (can still view and edit)</option>
+          ${noEmail.map(p=>`<option value="p:${esc(p.id)}">${esc(p.name)} (${esc(shortName(fam(famOf(p))?.name||''))})</option>`).join('')}
+          ${families().map(f=>`<option value="f:${esc(f.id)}">New person in ${esc(f.name)}</option>`).join('')}</select></label>
+        <label class="field wide"><span>Name (for a new person)</span><input type="text" id="ma-name" data-keep maxlength="40"></label>
+        <div class="wide"><button class="btn" type="submit">Add</button></div>
+        <div class="wide fine">They’ll see this trip after they sign in with that email (once approved).</div></form></details>
+    ${imp.length?`<form class="form inline" data-form="famimport"><select id="fi-fam" data-keep aria-label="Saved family">${imp.map(F=>`<option value="${esc(F.id)}">${esc(F.name)}</option>`).join('')}</select><button class="btn ghost" type="submit">Add saved family</button></form>`:''}
+    ${own?'':'<p class="fine">Only the planner can remove people.</p>'}
+    <div class="sharebox"><input type="text" id="share-url" readonly value="${esc(shareUrl())}" aria-label="Trip link"><button class="btn small" data-act="copylink">Copy link</button></div>
+    <div><button class="btn ghost small" data-act="signout">Sign out</button></div>
+    <div class="fine">App version ${APP_VERSION}</div>
+  </section>`;
 }
 
 // ---------- flights ----------
@@ -497,8 +667,8 @@ function famCard(f){
     <div class="label">Flights</div>
     <div class="legs">${LEGS.map(([k,label])=>legBox(f,k,label)).join('')}</div>
     ${travel.filter(p=>!p.virtual).length?`<div class="label">Other travel</div><ul class="flist">${travel.filter(p=>!p.virtual).map(line).join('')}</ul>`:''}
-    <div class="label">Parks</div>
-    ${parks.length?`<div class="chips">${parks.map(([d,c])=>parkChip(c,fmtD(d,{weekday:'short',month:'numeric',day:'numeric'}))).join('')}</div>`:'<div class="fine">Pick a park for each day on the Day tab.</div>'}
+    ${isDisney()?`<div class="label">Parks</div>
+    ${parks.length?`<div class="chips">${parks.map(([d,c])=>parkChip(c,fmtD(d,{weekday:'short',month:'numeric',day:'numeric'}))).join('')}</div>`:'<div class="fine">Pick a park for each day on the Day tab.</div>'}`:''}
     <div class="label">Activities</div>
     ${acts.length?`<ul class="flist">${acts.slice(0,6).map(line).join('')}</ul>${more(acts,6)}`:'<div class="fine">None yet.</div>'}
     <div class="label">Dining</div>
@@ -509,7 +679,7 @@ function famCard(f){
         <label class="field wide"><span>Hotel</span><input type="text" id="fe-hotel-${sel}" data-keep value="${esc(f.hotel||'')}" placeholder="Where they’re staying"></label>
         <label class="field"><span>Arrive</span><input type="date" id="fe-arrive-${sel}" data-keep value="${esc(f.arrive||'')}"></label>
         <label class="field"><span>Leave</span><input type="date" id="fe-depart-${sel}" data-keep value="${esc(f.depart||'')}"></label>
-        <label class="check wide"><input type="checkbox" id="fe-onsite-${sel}" data-keep${f.onsite?' checked':''}>Staying at a Disney-owned hotel</label>
+        ${isDisney()?`<label class="check wide"><input type="checkbox" id="fe-onsite-${sel}" data-keep${f.onsite?' checked':''}>Staying at a Disney-owned hotel</label>`:''}
         <div class="wide"><button class="btn" type="submit">Save</button></div>
       </form>
       <div class="names" style="margin-top:12px">${ms.map(m=>`<div class="name-row"><span class="av" style="background:${mcol(m.id)}">${initial(m.name)}</span>
@@ -540,19 +710,14 @@ function overviewView(){
   const upnext=`<section class="panel"><div class="panel-head"><h2>Up next</h2><a href="#lists" class="link">All to-dos</a></div>
       <div class="list">${openTasks.map(taskRow).join('')||'<div class="empty">No open to-dos. Add bookings and errands on the Lists tab.</div>'}</div>
     </section>`;
-  const details=`<section class="panel"><details id="trip-details"${openAttr('trip-details',false)}><summary>Trip name and resort</summary>
+  const details=`<section class="panel"><details id="trip-details"${openAttr('trip-details',false)}><summary>Trip name and type</summary>
       <form class="form" data-form="tripedit" style="margin-top:14px">
         <label class="field wide"><span>Trip name</span><input type="text" id="t-name" data-keep value="${esc(t.name)}"></label>
-        <label class="field wide"><span>Resort</span><select id="t-resort" data-keep><option value="wdw"${resort()==='wdw'?' selected':''}>Walt Disney World</option><option value="dl"${resort()==='dl'?' selected':''}>Disneyland Resort</option></select></label>
+        <label class="field wide"><span>Type</span><select id="t-resort" data-keep>${resortOpts(resort())}</select></label>
         <div class="wide"><button class="btn" type="submit">Save</button></div>
-      </form></details></section>`;
-  const share=`<section class="panel"><div class="panel-head"><h2>Share this trip</h2><span class="fine">Link plus password</span></div>
-      <p class="small muted" style="margin:0">Send the link and give the password a different way, like saying it out loud. Each family picks its name at the top once on each phone.</p>
-      <div class="sharebox"><input type="text" id="share-url" readonly value="${esc(shareUrl())}" aria-label="Trip link"><button class="btn small" data-act="copylink">Copy link</button>${navigator.share?'<button class="btn ghost small" data-act="sharelink">Share…</button>':''}</div>
-      <div><button class="btn ghost small" data-act="signout">Sign out of this trip on this device</button></div>
-      <div class="fine">App version ${APP_VERSION}</div>
-    </section>`;
-  return`${scopeBar()}<div class="grid">${famsPanel}${glance}${upnext}${wins}${details}${share}</div>`;
+      </form>
+      ${isOwner()?`<div style="margin-top:12px">${delBtn('tripdel',S.trip.id,'',t.name).replace('class="x"','class="x wide"').replace('>×<','>Delete this trip<')}</div>`:''}</details></section>`;
+  return`${scopeBar()}<div class="grid">${famsPanel}${glance}${upnext}${isDisney()?wins:''}${details}${accessPanel()}</div>`;
 }
 
 function weekView(){
@@ -576,21 +741,21 @@ function daysView(){
   const d=selDay, s=curScope(), f=s==='group'?null:fam(s), all=dayPlans(d), plans=visiblePlans(d), hidden=all.length-plans.length;
   const lastDay=f&&d===f.depart&&d!==f.arrive;
   const sel=selected(), pickFams=s==='group'?families():[f];
-  const dayFields=f?`<div class="dayfields"><label class="field"><span>Park</span><select data-change="daypark" data-day="${d}">${parkOpts(famPark(f.id,d))}</select></label>
+  const dayFields=f?`<div class="dayfields">${isDisney()?`<label class="field"><span>Park</span><select data-change="daypark" data-day="${d}">${parkOpts(famPark(f.id,d))}</select></label>`:''}
       ${lastDay?'':`<label class="field"><span>Hotel tonight</span><input type="text" id="dh-${f.id}-${d}" data-keep value="${esc(S.trip.famHotels?.[f.id]?.[d]||(f.id===firstFam()?S.trip.dayHotels?.[d]||'':''))}" placeholder="${esc(f.hotel||'Where you’re staying')}" data-change="dayhotel" data-day="${d}"></label>`}</div>`
     :`<div class="chips">${parkChips(d)}</div>`;
   return`${scopeBar()}<div class="strip" role="tablist" aria-label="Trip days">${days.map(x=>{const pk=f?famPark(f.id,x):'';return`<button class="daybtn" aria-current="${x===d}" data-act="selday" data-day="${x}"><span class="dw">${esc(fmtD(x,{weekday:'short'}))}</span><span class="dn">${pd(x).getDate()}</span><span class="dot" style="${pk?`background:var(--p-${PCOLOR[pk]||'rest'})`:''}"></span></button>`}).join('')}</div>
   <div class="grid" style="margin-top:12px">
     <section class="panel span2"><div class="panel-head"><div style="display:flex;flex-direction:column;gap:4px;min-width:0"><div class="label">Day ${days.indexOf(d)+1} of ${days.length}</div><h2>${esc(fmtD(d,{weekday:'long',month:'long',day:'numeric'}))}</h2>${hotelNotes(d)}</div>
       ${dayFields}</div>
-      ${!f&&multiFam()?'<div class="fine">Pick a family at the top to set its park and hotel for the day.</div>':''}
+      ${!f&&multiFam()?`<div class="fine">Pick a family at the top to set its ${isDisney()?'park and hotel':'hotel'} for the day.</div>`:''}
       <div class="list">${plans.map(rowFor).join('')||`<div class="empty">${hidden?'Nothing for the people selected on this day.':'Nothing planned for this day yet.'}</div>`}</div>
       ${hidden?`<div class="fine">${plural(hidden,'other plan')} on this day. <button type="button" class="linkbtn" data-act="allon">Show everyone</button></div>`:''}
       <details class="addbox" id="add-plan"${openAttr('add-plan',!all.length)}><summary class="btn">+ Add a plan</summary>
       <form class="form" data-form="plan">
         <label class="field"><span>Time</span><input type="time" id="pl-time" data-keep></label>
-        <label class="field"><span>Type</span><select id="pl-kind" data-keep>${KINDS.map(k=>`<option>${k}</option>`).join('')}</select></label>
-        <label class="field wide"><span>What</span><input type="text" id="pl-title" data-keep list="sugg" placeholder="Dinner at Sanaa" required></label>
+        <label class="field"><span>Type</span><select id="pl-kind" data-keep>${kinds().map(k=>`<option>${k}</option>`).join('')}</select></label>
+        <label class="field wide"><span>What</span><input type="text" id="pl-title" data-keep list="sugg" placeholder="${isDisney()?'Dinner at Sanaa':'Dinner reservation'}" required></label>
         <label class="field"><span>Confirmation #</span><input type="text" id="pl-conf" data-keep placeholder="Optional"></label>
         <label class="field"><span>Notes</span><input type="text" id="pl-notes" data-keep placeholder="Optional"></label>
         ${pickFams.map(pf=>{const ms=famMembers(pf.id);return ms.length?`<fieldset class="wide whopick"><legend>${pickFams.length>1?esc(pf.name):'Who’s going'}</legend>${ms.map(m=>`<label class="check"><input type="checkbox" id="pl-who-${m.id}" data-keep data-who-pick="${m.id}"${sel.includes(m.id)?' checked':''}>${esc(m.name)}</label>`).join('')}</fieldset>`:''}).join('')}
@@ -605,6 +770,7 @@ function whoChips(ids,act,itemId){
   return scopeMembers().map(p=>`<button type="button" class="chip-btn" style="--mc:${mcol(p.id)}" aria-pressed="${ids.includes(p.id)}" data-act="${act}" data-id="${itemId}" data-who="${p.id}"><span class="av">${initial(p.name)}</span>${esc(p.name)}</button>`).join('');
 }
 function heightIssue(w){
+  if(!isDisney())return'';
   const h=Number(w.minHeight)||0, ms=scopeMembers();if(!h||!ms.length)return'';
   const short=ms.filter(p=>Number(p.height)>0&&Number(p.height)<h), unknown=ms.filter(p=>!(Number(p.height)>0));
   if(short.length)return`<span class="chip bad">Too short: ${short.map(p=>`${esc(p.name)} (${esc(p.height)}″)`).join(', ')}</span>`;
@@ -616,15 +782,15 @@ function mustdoView(){
   const list=[...S.wishes].sort((a,b)=>(b.votes?.length||0)-(a.votes?.length||0)||String(a.title).localeCompare(b.title));
   const scheduled=t=>S.plans.filter(p=>String(p.title).toLowerCase().includes(String(t).toLowerCase()));
   return`${scopeBar()}<div class="grid"><section class="panel span2">
-    <div class="panel-head"><div><h2>Must-dos</h2><p class="small muted" style="margin:2px 0 0">Shared by every family. Tap your name on what you want most; the list sorts by votes and checks heights.</p></div></div>
-    ${ms.length?`<details id="heights"${openAttr('heights',false)}><summary>Heights for the ride check</summary>
+    <div class="panel-head"><div><h2>Must-dos</h2><p class="small muted" style="margin:2px 0 0">Shared by every family. Tap your name on what you want most; the list sorts by votes${isDisney()?' and checks heights':''}.</p></div></div>
+    ${ms.length&&isDisney()?`<details id="heights"${openAttr('heights',false)}><summary>Heights for the ride check</summary>
       <div class="names" style="margin-top:12px">${ms.map(p=>`<label class="name-row"><span class="av" style="background:${mcol(p.id)}">${initial(p.name)}</span><span class="nm">${esc(p.name)}</span>
         <input type="number" inputmode="numeric" min="0" max="90" value="${esc(p.height??'')}" placeholder="inches" aria-label="${esc(p.name)}’s height in inches" data-change="pheight" data-id="${p.id}"></label>`).join('')}</div></details>`:''}
     <details class="addbox" id="add-wish"${openAttr('add-wish',!list.length)}><summary class="btn">+ Add a must-do</summary>
     <form class="form" data-form="wish">
-      <label class="field wide"><span>Ride, show or meal</span><input type="text" id="w-title" data-keep list="sugg" placeholder="Start typing a ride name" required></label>
-      <label class="field"><span>Park</span><select id="w-park" data-keep>${parkOpts('','Any park')}</select></label>
-      <label class="field"><span>Min height (in)</span><input type="number" id="w-h" data-keep min="0" max="60" placeholder="None"></label>
+      <label class="field wide"><span>${isDisney()?'Ride, show or meal':'Place, show or meal'}</span><input type="text" id="w-title" data-keep list="sugg" placeholder="${isDisney()?'Start typing a ride name':'Somewhere you want to go'}" required></label>
+      ${isDisney()?`<label class="field"><span>Park</span><select id="w-park" data-keep>${parkOpts('','Any park')}</select></label>
+      <label class="field"><span>Min height (in)</span><input type="number" id="w-h" data-keep min="0" max="60" placeholder="None"></label>`:''}
       <div><button class="btn" type="submit">Add must-do</button></div>
     </form></details>${suggList()}
     <div class="list">${list.map(w=>{const sch=scheduled(w.title);return`<div class="row"><div class="body">
@@ -679,7 +845,7 @@ function render(){
   const focusId=ae&&view.contains(ae)&&ae.id?ae.id:null, sel=focusId&&'selectionStart' in ae?[ae.selectionStart,ae.selectionEnd]:null;
   applyPalette();
   renderHeader();
-  const gate=['config','welcome','locked'].includes(S.mode);
+  const gate=gated();
   view.innerHTML=S.trip&&!gate?VIEWS[currentTab()]():setupView();
   for(const id in keep){const el=document.getElementById(id);if(el)el.type==='checkbox'?el.checked=keep[id]:el.value=keep[id]}
   if(focusId){const el=document.getElementById(focusId);if(el){el.focus();try{sel&&el.setSelectionRange(...sel)}catch{}}}
@@ -692,23 +858,44 @@ function clear(...ids){ids.forEach(id=>{const el=document.getElementById(id);if(
 document.addEventListener('submit',e=>{
   const f=e.target.closest('form[data-form]');if(!f)return;e.preventDefault();
   const k=f.dataset.form, fid=f.dataset.fam;
-  if(k==='unlock'){const pw=$('#u-pw').value;if(pw)unlock(pw);return}
-  if(k==='setup'){
-    const start=val('s-start'),end=val('s-end')||start;
-    if(!validDate(start)){toast('Pick your arrival date.');return}
-    if(end<start){toast('The leave date is before the arrival date.');return}
-    const famId=uid();
-    const ppl=val('s-party').split('\n').map(l=>l.trim()).filter(Boolean).map(n=>({id:uid(),name:n.slice(0,40),height:null,family:famId}));
-    act(store.setTrip({name:val('s-name')||'Our Disney trip',resort:val('s-resort')||'wdw',
-      families:[{id:famId,name:val('s-fam')||'Our family',hotel:val('s-hotel'),arrive:start,depart:end,onsite:document.getElementById('s-onsite').checked}],party:ppl}),'Trip created');
-  }
-  if(k==='tripedit')act(store.updateTrip({name:val('t-name')||'Our Disney trip',resort:val('t-resort')}),'Saved');
+  if(k==='signin'){signIn(normEmail(val('a-email')),$('#a-pw').value);return}
+  if(k==='signup'){signUp(val('a-name').slice(0,40),normEmail(val('a-email')),$('#a-pw').value);return}
+  if(k==='reset'){resetPw(normEmail(val('a-email')));return}
+  if(k==='newtrip'){createTrip(f);return}
+  if(k==='fgnew'){const name=val('fg-new').slice(0,60);if(!name)return;clear('fg-new');closedBoxes.add('fgnew');openBoxes.delete('fgnew');
+    const people=[{id:uid(),name:myName(),email:myEmail()}];
+    act(setDoc(doc(collection(db,'families')),{name,people,editors:fgEditors(people)}),`${name} created`);return}
+  if(k==='fgperson'||k==='fgrename'){
+    const F=D.fams.find(x=>x.id===fid);if(!F)return;
+    if(k==='fgrename'){const name=val('fg-rn-'+fid).slice(0,60);if(name)act(updateDoc(doc(db,'families',fid),{name}),'Saved');return}
+    const name=val('fg-name-'+fid).slice(0,40), email=normEmail(val('fg-email-'+fid));if(!name)return;
+    if(email&&!EMAIL_RE.test(email)){toast('That email doesn’t look right.');return}
+    if(email&&fgPeople(F).some(p=>normEmail(p.email)===email)){toast('That email is already in this family.');return}
+    clear('fg-name-'+fid,'fg-email-'+fid);
+    const people=[...fgPeople(F),{id:uid(),name,...(email?{email}:{})}];
+    act(updateDoc(doc(db,'families',fid),{people,editors:fgEditors(people)}),`${name} added`);return}
+  if(k==='memadd'){
+    const email=normEmail(val('ma-email')), as=val('ma-as'), name=val('ma-name').slice(0,40);
+    if(!EMAIL_RE.test(email)){toast('That email doesn’t look right.');return}
+    if(party().some(p=>p.email&&normEmail(p.email)===email)&&members().includes(email)){toast('They’re already on this trip.');return}
+    let ppl=party();
+    if(as.startsWith('p:'))ppl=ppl.map(p=>p.id===as.slice(2)?{...p,email}:p);
+    else if(as.startsWith('f:')){if(!name){toast('Add their name for the plan.');return}ppl=[...ppl,{id:uid(),name,height:null,family:as.slice(2),email}]}
+    clear('ma-email','ma-name');
+    act(store.updateTrip({members:[...new Set([...members(),email])],party:ppl}),`${email} can open this trip now`);return}
+  if(k==='famimport'){
+    const F=D.fams.find(x=>x.id===val('fi-fam'));if(!F)return;
+    const fs=fam(F.id)?families():[...families(),{id:F.id,name:F.name,hotel:'',arrive:'',depart:'',onsite:false}];
+    const add=fgPeople(F).filter(p=>!party().some(x=>x.id===p.id)).map(p=>({id:p.id,name:p.name,height:null,family:F.id,...(p.email?{email:normEmail(p.email)}:{})}));
+    const ems=add.map(p=>p.email).filter(Boolean);
+    act(store.updateTrip({families:fs,party:[...party(),...add],members:[...new Set([...members(),...ems])]}),`${F.name} added`);return}
+  if(k==='tripedit')act(store.updateTrip({name:val('t-name')||'Our trip',resort:RESORTS[val('t-resort')]?val('t-resort'):'wdw'}),'Saved');
   if(k==='famedit'){
     const name=val('fe-name-'+fid), arrive=val('fe-arrive-'+fid), depart=val('fe-depart-'+fid);
     if(!name){toast('Give the family a name.');return}
     if(validDate(arrive)!==validDate(depart)){toast('Add both the arrival and the leave date.');return}
     if(validDate(arrive)&&depart<arrive){toast('The leave date is before the arrival date.');return}
-    act(store.updateTrip({families:famSaveList(fid,{name:name.slice(0,40),hotel:val('fe-hotel-'+fid).slice(0,80),arrive,depart,datesSet:validDate(arrive),onsite:document.getElementById('fe-onsite-'+fid).checked})}),'Saved');
+    act(store.updateTrip({families:famSaveList(fid,{name:name.slice(0,40),hotel:val('fe-hotel-'+fid).slice(0,80),arrive,depart,datesSet:validDate(arrive),onsite:!!document.getElementById('fe-onsite-'+fid)?.checked})}),'Saved');
   }
   if(k==='leg'){
     const g=n=>val(`lg-${fid}-${f.dataset.leg}-${n}`), date=g('date');
@@ -748,7 +935,7 @@ document.addEventListener('submit',e=>{
   }
   if(k==='wish'){
     const title=val('w-title');if(!title)return;const d={title,park:val('w-park'),minHeight:Number(val('w-h'))||0,votes:[]};
-    clear('w-title','w-h');document.getElementById('w-park').value='';act(store.add('wishes',d));
+    clear('w-title','w-h');const wp=document.getElementById('w-park');if(wp)wp.value='';act(store.add('wishes',d));
   }
   if(k==='task'){const text=val('t-text');if(!text)return;const owner=val('t-owner');const d={text,due:val('t-due'),owner,done:false,family:newItemFam(owner)};clear('t-text','t-due');act(store.add('tasks',d))}
   if(k==='pack'){const text=val('k-text');if(!text)return;const who=val('k-who');const d={text,who,done:false,family:newItemFam(who)};clear('k-text');act(store.add('packing',d))}
@@ -758,14 +945,25 @@ document.addEventListener('submit',e=>{
 document.addEventListener('input',e=>{
   if(e.target.id!=='w-title')return;
   const s=SUGGEST[resort()].find(x=>x[0].toLowerCase()===e.target.value.trim().toLowerCase());
-  if(s){document.getElementById('w-park').value=s[1];document.getElementById('w-h').value=s[2]||''}
+  if(s&&document.getElementById('w-park')){document.getElementById('w-park').value=s[1];document.getElementById('w-h').value=s[2]||''}
 });
 
 const toggleIn=(arr,v)=>arr.includes(v)?arr.filter(x=>x!==v):[...arr,v];
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b)return;
   const {act:a,id,coll,who,day}=b.dataset;
-  if((a==='del'||a==='pdel'||a==='famdel'||a==='legdel')&&!confirmTap(b,a+id))return;
+  if(['del','pdel','famdel','legdel','memdel','fgdel','fgpdel','tripdel','deny'].includes(a)&&!confirmTap(b,a+id))return;
+  if(a==='go'&&['signin','signup','reset'].includes(who)){S.mode=who;S.authErr='';render()}
+  if(a==='verified')checkVerified();
+  if(a==='resend'&&auth.currentUser)sendEmailVerification(auth.currentUser).then(()=>toast('Sent. Check your inbox.'),e=>toast(e?.code==='auth/too-many-requests'?'Too many emails. Wait a few minutes.':'Couldn’t send it. Try again.'));
+  if(a==='approve')act(updateDoc(doc(db,'users',id),{status:'approved'}),'Approved');
+  if(a==='deny'||a==='denynow')act(updateDoc(doc(db,'users',id),{status:'denied'}),a==='deny'?'Access removed':'Denied');
+  if(a==='justme'){const m=meInParty();if(m){pick=[m.id];ls.set('trip-pick',pick);render()}}
+  if(a==='ntall')document.querySelectorAll(`[data-nt^="${id}|"]`).forEach(c=>c.checked=true);
+  if(a==='memdel'){if(id===S.trip.owner)return;act(store.updateTrip({members:members().filter(e=>e!==id)}),'Access removed')}
+  if(a==='fgdel')act(deleteDoc(doc(db,'families',id)),'Family deleted');
+  if(a==='fgpdel'){const[fid2,pid]=id.split('|'),F=D.fams.find(x=>x.id===fid2);if(F){const people=fgPeople(F).filter(p=>p.id!==pid);act(updateDoc(doc(db,'families',fid2),{people,editors:fgEditors(people)}))}}
+  if(a==='tripdel'&&isOwner())deleteDoc(doc(db,'trips',S.trip.id)).then(()=>location.href='./',()=>toast('Couldn’t delete the trip. Try again.'));
   if(a==='scope'){scope=who;ls.set('trip-scope',scope);render()}
   if(a==='person'){pick=toggleIn(filtering()?selected():[],who);ls.set('trip-pick',pick);render()}
   if(a==='allon'){pick=[];ls.set('trip-pick',pick);render()}
@@ -782,9 +980,8 @@ document.addEventListener('click',e=>{
   if(a==='todoclose'){openTodo=null;render()}
   if(a==='ics'){const p=allPlans().find(x=>x.id===id);if(p)saveIcs([p],p.title)}
   if(a==='icsall'){saveIcs(tripDays().flatMap(visiblePlans),S.trip.name||'Disney trip')}
-  if(a==='copylink'){const u=shareUrl();navigator.clipboard?.writeText(u).then(()=>toast('Link copied. Send the password separately.'),()=>{$('#share-url').select();toast('Press copy to copy the selected link.')})}
-  if(a==='sharelink'){navigator.share?.({title:S.trip?.name||'Our Disney trip',text:'Our Disney trip plan. I’ll send you the password separately.',url:shareUrl()}).catch(()=>{})}
-  if(a==='signout'){signOut(auth).then(()=>location.reload())}
+  if(a==='copylink'){const u=shareUrl();navigator.clipboard?.writeText(u).then(()=>toast('Link copied. It only works for people on this trip.'),()=>{$('#share-url').select();toast('Press copy to copy the selected link.')})}
+  if(a==='signout')signOutAll();
 });
 document.addEventListener('change',e=>{
   const el=e.target.closest('[data-change]');if(!el)return;
@@ -798,45 +995,92 @@ document.addEventListener('change',e=>{
   if(c==='schedule'&&el.value){
     const w=S.wishes.find(x=>x.id===id);if(!w)return;
     const ms=scopeMembers().map(m=>m.id), voters=(w.votes||[]).filter(v=>ms.includes(v));
-    const d=el.value;act(store.add('plans',{date:d,time:'',title:w.title,kind:'Ride',conf:'',notes:'',who:voters.length?voters:selected()}),`Added to ${fmtD(d)}`);
+    const d=el.value;act(store.add('plans',{date:d,time:'',title:w.title,kind:isDisney()?'Ride':'Sightseeing',conf:'',notes:'',who:voters.length?voters:selected()}),`Added to ${fmtD(d)}`);
   }
 });
 // ---------- sign-in & boot ----------
 let app=null, auth=null, db=null;
 function authMessage(e){
   const c=e?.code||'';
-  if(c==='auth/too-many-requests')return'Too many wrong tries. Wait a few minutes, then try again.';
-  if(c==='auth/network-request-failed')return'You’re offline. Connect to the internet to unlock the trip the first time.';
-  if(c==='auth/operation-not-allowed')return'Password sign-in isn’t turned on for this Firebase project yet. See the README.';
-  if(c==='auth/invalid-credential'||c==='auth/wrong-password'||c==='auth/user-not-found'||c==='auth/invalid-login-credentials')return'That password isn’t right for this trip.';
-  return'Couldn’t open the trip. Check the link and try again.';
+  if(c==='auth/too-many-requests')return'Too many tries. Wait a few minutes, then try again.';
+  if(c==='auth/network-request-failed')return'You’re offline. Connect to the internet and try again.';
+  if(c==='auth/email-already-in-use')return'That email already has an account. Sign in instead, or reset the password.';
+  if(c==='auth/weak-password')return'Use a longer password (at least 8 characters).';
+  if(c==='auth/invalid-email')return'That email doesn’t look right.';
+  if(c==='auth/operation-not-allowed'||c==='auth/admin-restricted-operation')return'New accounts are switched off right now. Ask the organizer.';
+  if(c==='auth/invalid-credential'||c==='auth/wrong-password'||c==='auth/user-not-found'||c==='auth/invalid-login-credentials')return'That email and password don’t match.';
+  return'Something went wrong. Try again.';
 }
-function openTrip(key){
-  ls.set('trip-last',key);
-  S.mode='loading';S.authErr='';S.busy=false;
-  store=firestoreStore(db,key);
-  store.watch();render();
+async function busy(fn){S.busy=true;S.authErr='';render();try{await fn()}catch(e){console.warn(e);S.authErr=authMessage(e)}S.busy=false;render()}
+const signIn=(email,pw)=>busy(()=>signInWithEmailAndPassword(auth,email,pw));
+function signUp(name,email,pw){
+  if(!name){S.authErr='Add your name.';render();return}
+  if(String(pw).length<8){S.authErr='Use a longer password (at least 8 characters).';render();return}
+  busy(async()=>{const c=await createUserWithEmailAndPassword(auth,email,pw);await updateProfile(c.user,{displayName:name});await sendEmailVerification(c.user)});
 }
-async function unlock(pw){
-  const key=tripKey();S.busy=true;S.authErr='';render();
-  try{
-    if(auth.currentUser)await signOut(auth);
-    await signInWithEmailAndPassword(auth,tripEmail(key),pw);   // onAuthStateChanged opens the trip
-  }catch(e){S.busy=false;S.authErr=authMessage(e);render();console.warn(e)}
+// Always says the same thing, so this form can't be used to find out who has an account.
+const resetPw=email=>busy(async()=>{try{await sendPasswordResetEmail(auth,email)}catch(e){if(e?.code==='auth/network-request-failed'||e?.code==='auth/too-many-requests')throw e}toast('If that email has an account, a reset link is on its way.');S.mode='signin'});
+// The sign-in token only learns about a confirmed email once it's refreshed.
+async function checkVerified(){
+  const u=auth.currentUser;if(!u)return;
+  S.busy=true;render();
+  try{await u.reload();if(auth.currentUser.emailVerified){await auth.currentUser.getIdToken(true);S.busy=false;return enterApp(auth.currentUser)}toast('Not confirmed yet. Tap the link in the email first.')}
+  catch(e){toast(authMessage(e))}
+  S.busy=false;render();
 }
-function boot(){
+// Signing out also wipes this device's offline copy, so the next person can't read it.
+function signOutAll(){
+  signOut(auth).then(()=>terminate(db)).then(()=>clearIndexedDbPersistence(db)).catch(e=>console.warn(e)).finally(()=>{location.href='./'});
+}
+// Only the admin may list accounts, so asking the server is how the app finds out (the rules decide, not the app).
+async function probeAdmin(){try{await getDocsFromServer(query(collection(db,'users'),limit(1)));return true}catch{return false}}
+const unsubs=[];
+function watchDash(){
+  unsubs.push(onSnapshot(query(collection(db,'trips'),where('members','array-contains',myEmail())),q=>{D.trips=q.docs.map(d=>({...d.data(),id:d.id}));render()},e=>console.warn(e)));
+  unsubs.push(onSnapshot(query(collection(db,'families'),where('editors','array-contains',myEmail())),q=>{D.fams=q.docs.map(d=>({...d.data(),id:d.id})).sort((a,b)=>String(a.name).localeCompare(b.name));render()},e=>console.warn(e)));
+  if(ME.admin)unsubs.push(onSnapshot(collection(db,'users'),q=>{D.users=q.docs.map(d=>({...d.data(),id:d.id}));render()},e=>console.warn(e)));
+}
+let entered=false;
+async function enterApp(user){
+  if(entered)return;entered=true;
+  S.mode='boot';render();
+  ME.user=user;ME.email=normEmail(user.email);
+  const ref=doc(db,'users',user.uid);
+  ME.admin=await probeAdmin();
+  let snap=null;
+  try{snap=await getDoc(ref)}catch(e){console.warn(e)}
+  if(!snap){entered=false;S.authErr='Can’t reach the server. Check your connection, then reload.';render();return}
+  if(!snap.exists()){
+    // First sign-in after confirming the email: create the profile. It starts out "pending".
+    const prof={email:ME.email,name:String(user.displayName||ME.email.split('@')[0]).slice(0,40),status:'pending',created:new Date().toISOString()};
+    try{await setDoc(ref,prof)}catch(e){console.warn(e)}
+    ME.profile=prof;
+  }else ME.profile=snap.data();
+  if(ME.admin&&ME.profile.status!=='approved'){ME.profile.status='approved';quick(updateDoc(ref,{status:'approved'}))}
+  // Approval (or removal) shows up right away: reload into the new state.
+  const was=ME.profile.status;
+  onSnapshot(ref,s=>{const st=s.data()?.status;if(st&&st!==was&&!ME.admin)location.reload()},e=>console.warn(e));
+  if(was!=='approved'){S.mode=was==='denied'?'denied':'pending';render();return}
+  watchDash();
+  const id=tripId();
+  if(id){S.mode='loading';store=firestoreStore(db,id);store.watch();render();return}
+  S.mode='dash';render();
+}
+async function boot(){
   if(!firebaseConfig){S.mode='config';render();return}
   app=initializeApp(firebaseConfig);
+  // Optional bot shield: only this website can talk to the database (see README, "App Check").
+  if(appConfig?.appCheckKey){try{const m=await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check.js');m.initializeAppCheck(app,{provider:new m.ReCaptchaV3Provider(appConfig.appCheckKey),isTokenAutoRefreshEnabled:true})}catch(e){console.warn(e)}}
   auth=getAuth(app);
   db=initializeFirestore(app,{localCache:persistentLocalCache({tabManager:persistentMultipleTabManager()})});
-  S.cacheOk=true;
+  S.cacheOk=true;S.mode='boot';render();
   addEventListener('online',render);addEventListener('offline',render);
-  onAuthStateChanged(auth,user=>{
-    const key=tripKey();
-    if(!key){S.mode='welcome';render();return}
-    if(user&&user.email===tripEmail(key)){if(!store)openTrip(key);return}
-    if(store)return location.reload();   // signed out while a trip was open
-    S.mode='locked';render();
+  onAuthStateChanged(auth,async user=>{
+    if(!user){if(entered)return location.reload();if(!['signup','reset'].includes(S.mode))S.mode='signin';render();return}
+    ME.user=user;ME.email=normEmail(user.email);
+    if(!user.emailVerified){try{await user.reload()}catch{}if(auth.currentUser?.emailVerified)await auth.currentUser.getIdToken(true).catch(()=>{})}
+    if(!auth.currentUser?.emailVerified){S.mode='verify';S.busy=false;render();return}
+    enterApp(auth.currentUser);
   });
 }
 if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});

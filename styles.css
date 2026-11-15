@@ -324,3 +324,19 @@ select.addwho{width:auto;min-height:36px;padding:4px 10px;font-size:16px;border-
 .count b{color:var(--accent)}
 body,nav.tabs,.panel,.famcard,.leg{transition:background-color .25s ease,color .25s ease}
 @media (prefers-reduced-motion:reduce){body,nav.tabs,.panel,.famcard,.leg{transition:none}}
+
+/* ---------- v2: accounts, dashboard, approvals ---------- */
+.testflag{margin:0 0 6px;padding:4px 10px;border-radius:999px;background:var(--warn);color:#fff;font-size:.75rem;font-weight:700;align-self:flex-start;display:inline-block}
+.crumbs{display:flex;align-items:center;gap:10px;min-width:0;margin-bottom:2px}
+.crumbs .linkbtn{text-decoration:none;white-space:nowrap}
+.crumbs .tripnm{color:var(--muted);font-size:.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.authlinks{display:flex;gap:10px 18px;flex-wrap:wrap;align-items:center}
+.tripcards{display:grid;gap:10px}
+.tripcard{display:flex;flex-direction:column;gap:4px;padding:14px;border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:10px;background:var(--bg);color:var(--ink);text-decoration:none;min-height:var(--tap)}
+.tripcard:hover,.tripcard:focus-visible{border-color:var(--accent)}
+.tripcard .tcname{font-family:var(--f-display);font-weight:700;font-size:1.1rem}
+.tripcard .chips:empty{display:none}
+.approvals{flex-direction:row;align-items:center;justify-content:space-between;text-decoration:none;color:var(--ink);min-height:var(--tap)}
+.badge{background:var(--bad);color:#fff;border-radius:999px;padding:3px 10px;font-size:.8rem;font-weight:700}
+.whopick legend .linkbtn{margin-left:8px;padding:0;font-size:.8rem}
+@media (min-width:760px){.tripcards{grid-template-columns:repeat(2,minmax(0,1fr))}}

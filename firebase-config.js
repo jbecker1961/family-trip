@@ -1,11 +1,12 @@
-// Firebase web app config for the "Family Disney Trip" project (Firebase console > Project settings > Your apps).
-// These values identify the project; they are not passwords. Access is controlled by firestore.rules
-// and the trip password.
-export const firebaseConfig = {
-  apiKey: "AIzaSyBpevzuQWYsRfcRYmfSOw9GK_mQDsEYFm4",
-  authDomain: "family-disney-trip.firebaseapp.com",
-  projectId: "family-disney-trip",
-  storageBucket: "family-disney-trip.firebasestorage.app",
-  messagingSenderId: "549733207304",
-  appId: "1:549733207304:web:a6db7e6f42dc97f121f0bd"
+// v2 TEST version: this must point at a separate Firebase project (for example "family-trip-test"),
+// never the live "family-disney-trip" project. Until it's filled in, the app shows a setup notice.
+// Firebase console > Project settings > Your apps > Web app > Config, then paste it in place of null.
+export const firebaseConfig = null;
+
+// Shown on the sign-up and "waiting for approval" screens.
+export const appConfig = {
+  adminName: 'Jason',
+  adminPhone: '',          // optional: a number here adds a "Let Jason know" text-message button for pending accounts
+  appCheckKey: '',         // optional: reCAPTCHA v3 site key once App Check is set up (README)
+  testBanner: true         // shows "Test version" at the top
 };

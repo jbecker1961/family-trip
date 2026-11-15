@@ -1,4 +1,7 @@
-# Family Disney Trip
+# Trip Planner (v2 test: personal logins)
+
+> This is the **v2-accounts** test branch. The live Disney planner is on `main`. This version needs its own Firebase project; see "One-time setup for the TEST project".
+
 
 A shared, password-protected trip planner for the family. It's plain HTML, CSS and JavaScript with no build step, hosted on GitHub Pages, with trip data stored in Firebase (Firestore).
 
@@ -35,43 +38,51 @@ The family views reduce clutter; they are not private. Everyone with the link an
 
 Each family has an **Outbound flight** and a **Return flight** on its Home tile (date, flight number, from, to, departs, arrives, confirmation). Saved flights appear on the Day and Trip tabs and in calendar export on their own, for everyone in that family. If an old travel plan like "EWR to MCO" is on the arrival or leave day, the flight form pre-fills from it, and saving moves it into the flight so it isn't listed twice.
 
-## How access works
+## How access works (v2: personal logins)
 
-Each trip has a link (`?t=<random key>`) and a **trip password**. Both are needed, and only the organizer can create a trip or set its password.
+Everyone has their own login: their own email and a password they choose. A trip lists the emails that can open it, so one person can have a solo trip, a family trip and a trip shared with another family, and each person only ever sees the trips they're on.
 
-- The trip's data lives at `trips/<key>` in Firestore.
-- Each trip has one Firebase sign-in account, `<key>@trips.example.com`, whose password is the trip password. No email is ever sent to that address; it only names the account.
-- `firestore.rules` lets a device read or write a trip only while it's signed in to that trip's account. Someone with the link but not the password gets nothing from the database.
-- Public sign-up and self-deletion are turned off in **Authentication > Settings > User actions**, so nobody can create an account from the site. Trip accounts are created only in the Firebase console.
-- Firebase blocks repeated wrong passwords for a while (`auth/too-many-requests`).
-- Each device enters the password once and stays signed in. **Sign out of this trip** on the Overview tab signs a device out.
+- **Sign up:** anyone can create an account on the site (name, email, password), then must tap the confirmation link Firebase emails them.
+- **Approval:** a new account starts as **pending** and can read or write nothing until the admin approves it on the **Approvals** page (on the dashboard, admin only). The admin can also deny an account, or remove access later. Pending people see a "Waiting for approval" screen, with an optional button to text the admin.
+- **Admin:** the email listed in `adminEmails()` in `firestore.rules`. That account is approved automatically.
+- **Dashboard ("My trips"):** the trips you're on, and **My families**: saved groups of people (name, and an email if they have a login) for adding people to a trip in one tap. Kids and anyone without a login are just names.
+- **New trip:** pick a name, type (Walt Disney World, Disneyland or another trip with no parks), optional dates, and tick who's going. Only ticked people with an email can open it. You're always included, and you're the trip's **planner**.
+- **Inside a trip:** the same Home, Trip, Day, Must-dos and Lists tabs as before. Trips that aren't Disney hide parks, booking windows, ride heights and Lightning Lane. **Who can open this trip** on Home lists everyone with access. Anyone on the trip can add people by email (and add a saved family); only the planner can remove people or delete the trip.
+- **Just me** in the people filter shows your own itinerary, including plans with others.
+- Signing out also clears the offline copy on that device.
 
-Send the link and the password separately (for example, the link by text and the password out loud).
+### What the rules enforce (on Google's servers, not just in the app)
 
-### Create a trip
+- Only accounts with a confirmed email get anywhere. Unconfirmed sign-ups write nothing to the database.
+- A pending or denied account can't read or write anything. Nobody can approve themselves.
+- A trip can be read only by the emails in its `members` list. Non-planners can only add to that list, never remove; the planner can't be removed.
+- Only the admin can list accounts.
 
-1. Make a random key of 28 lowercase letters and digits, for example: `python3 -c "import secrets;print(''.join(secrets.choice('abcdefghijkmnpqrstuvwxyz23456789') for _ in range(28)))"`
-2. In **Authentication > Users > Add user**, enter `<key>@trips.example.com` and the trip password.
-3. Open `https://<your site>/?t=<key>`, enter the password, and fill in the trip details.
+### Costs and bots
 
-### Change the trip password
+This stays on the free **Spark** plan, which has no billing account, so nothing can ever be charged. The worst a flood of fake sign-ups could do is hit a daily free limit and pause the app until the next day. Never click **Upgrade** / **Blaze** in Firebase and never link a billing account in Google Cloud.
 
-There's no reset email, because the account address isn't real. Instead:
+Optional extra shield: **App Check** with reCAPTCHA v3 (free) makes the database accept requests only from this website. Register a reCAPTCHA v3 key for the site, add it under **App Check** in the Firebase console, enforce it for Firestore and Authentication, and put the site key in `appConfig.appCheckKey` in `firebase-config.js`.
 
-1. In **Authentication > Users**, delete the trip's user (the data stays; it's stored by key, not by account).
-2. **Add user** again with the same `<key>@trips.example.com` email and the new password.
-3. Devices signed in with the old password get signed out within about an hour and are asked for the new one.
+## One-time setup for the TEST project
 
-## One-time Firebase setup
+Use a **separate** Firebase project so the test version can never touch the live trip.
 
-1. Go to https://console.firebase.google.com and **Create a project**. Google Analytics isn't needed.
-2. **Build > Authentication > Get started > Sign-in method**: enable **Email/Password**. Leave "Email link" off.
-3. **Build > Firestore Database > Create database**: choose **production mode** and a location near you (for example `us-east1`).
-4. **Firestore Database > Rules**: replace the rules with the contents of [`firestore.rules`](firestore.rules) and click **Publish**.
-5. **Project settings (gear) > General > Your apps**: add a **Web** app (the `</>` icon). Skip Firebase Hosting. Copy the `firebaseConfig` object it shows into [`firebase-config.js`](firebase-config.js) in place of `null`.
-6. **Authentication > Settings > User actions**: uncheck **Enable create (sign-up)** and **Enable delete**, then **Save**.
+1. https://console.firebase.google.com > **Create a project**, for example `family-trip-test`. Google Analytics isn't needed. It starts on the free Spark plan.
+2. **Build > Authentication > Get started > Sign-in method**: enable **Email/Password** (leave "Email link" off). Under **Settings > User actions**, keep **Enable create (sign-up)** checked: the approval step keeps strangers out.
+3. **Build > Firestore Database > Create database**: **production mode**, a location near you.
+4. **Firestore Database > Rules**: paste [`firestore.rules`](firestore.rules), replace `you@example.com` with your own email (lowercase), and **Publish**.
+5. **Project settings > General > Your apps**: add a **Web** app and copy its `firebaseConfig` into [`firebase-config.js`](firebase-config.js) in place of `null`. Optionally set `adminPhone` there.
+6. Run it locally (below), **Create an account** with the admin email, confirm it from your inbox, and you're in.
 
-The values in `firebase-config.js` identify the project and are safe to publish; the rules and the trip password are what protect the data. Firebase's free Spark plan is far more than a family trip needs.
+The values in `firebase-config.js` identify the project and are safe to publish; the rules are what protect the data.
+
+### Not done yet
+
+- Moving the live Disney trip into this version.
+- Hosting the test version somewhere phones can open it (GitHub Pages serves only `main`).
+- "Sign in with Google".
+- Testing the rules in Firebase's emulator (the app's screens and logic are tested headlessly).
 
 ## Run it locally
 
@@ -79,7 +90,7 @@ The values in `firebase-config.js` identify the project and are safe to publish;
 python3 -m http.server 8000
 ```
 
-Then open http://localhost:8000/?t=<key>.
+Then open http://localhost:8000. (`localhost` is allowed for sign-in by default.)
 
 ## Host it on GitHub Pages
 
@@ -88,6 +99,6 @@ Push this folder to a GitHub repository, then turn on **Settings > Pages > Deplo
 ## Files
 
 - `index.html`, `styles.css`, `app.js`: the app.
-- `firebase-config.js`: your Firebase project's web config.
+- `firebase-config.js`: the TEST Firebase project's web config, plus `appConfig` (admin name, optional phone, App Check key, test banner).
 - `firestore.rules`: the database access rules (paste into the Firebase console).
 - `sw.js`, `manifest.webmanifest`, `icon-*.png`, `apple-touch-icon.png`: home-screen install and offline support.
