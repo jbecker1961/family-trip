@@ -25,7 +25,7 @@ Calendar export is a one-time copy, not a live link: GitHub Pages can't serve a 
 A trip can have several families (for example, two families travelling together). Each family has its own people, hotel, arrival and leave dates, park for each day, booking windows, to-dos and packing. Must-dos are shared.
 
 - The switch at the top of each tab picks **Group** or one family. Each phone remembers its choice.
-- Under it, that view's people are all on; tap someone to hide plans that only include them.
+- Under it is **Everyone** and that view's people. Tap a name to see just that person's itinerary, including plans they share with anyone from either family; tap more names to add them. **Everyone** or **Show everyone** clears it.
 - A family's view shows only plans with at least one of its people on them, including plans shared with another family (labeled "With …"). Everything else is in Group.
 - **Home > Families** shows each family's dates, hotel, people, travel and dining (your own family in a family view, every family in Group), and is where a family edits its details or adds people. **Add another family** is at the bottom of that panel.
 

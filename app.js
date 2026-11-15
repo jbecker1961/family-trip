@@ -3,7 +3,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, onSnapshot, setDoc, updateDoc, deleteDoc, addDoc, FieldPath } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-const APP_VERSION='2026.11.15-4';   // shown at the bottom of Home so you can tell which version a phone has
+const APP_VERSION='2026.11.15-5';   // shown at the bottom of Home so you can tell which version a phone has
 
 // ---------- helpers ----------
 const $=(s,r=document)=>r.querySelector(s);
@@ -89,11 +89,13 @@ const tripDays=()=>{const r=tripRange();if(!r)return[];const n=Math.min(diff(r[0
 // ---------- scope: Group or one family, then that scope's people ----------
 // Each device remembers its own scope, so the Logothetis phones can stay on their family.
 let scope=ls.get('trip-scope','group');
-let off=ls.get('trip-off',[]);                       // people switched off in the filter
+let pick=ls.get('trip-pick',[]);                     // people picked in the filter; none picked = everyone
 const curScope=()=>{const fs=families();if(fs.length===1)return fs[0].id;return scope==='group'||fam(scope)?scope:'group'};
 const scopeFams=()=>{const s=curScope();return s==='group'?families():[fam(s)]};
 const scopeMembers=()=>{const s=curScope();return s==='group'?party():famMembers(s)};
-const selected=()=>scopeMembers().filter(m=>!off.includes(m.id)).map(m=>m.id);
+// The people whose itinerary is showing. A plan shows if any of them is on it, even with others.
+const selected=()=>{const ms=scopeMembers().map(m=>m.id), p=(Array.isArray(pick)?pick:[]).filter(id=>ms.includes(id));return p.length?p:ms};
+const filtering=()=>selected().length<scopeMembers().length;
 const multiFam=()=>families().length>1;
 
 // Who's on a plan, in the family list's order. Plans saved before "who" existed belong to the first family.
@@ -263,13 +265,14 @@ function viewingBar(){
 }
 // ---------- people in the current view (all on; tap to hide) ----------
 function scopeBar(){
-  const ms=scopeMembers(), sel=selected();
-  if(!ms.length)return'';
-  const allOn=sel.length===ms.length, offNames=ms.filter(m=>!sel.includes(m.id)).map(m=>m.name);
-  return`<div class="filterbar" role="group" aria-label="People shown">
-    ${ms.map(m=>`<button type="button" class="chip-btn" style="--mc:${mcol(m.id)}" aria-pressed="${sel.includes(m.id)}" data-act="person" data-who="${m.id}"><span class="av">${initial(m.name)}</span>${esc(m.name)}</button>`).join('')}
-    ${allOn?'':'<button type="button" class="chip-btn" data-act="allon">Show everyone</button>'}
-  </div>${allOn?'':`<div class="filternote small muted">Hiding plans that only include ${esc(listJoin(offNames,'or'))}</div>`}`;
+  const ms=scopeMembers();if(!ms.length)return'';
+  const on=filtering(), sel=selected(), names=ms.filter(m=>sel.includes(m.id)).map(m=>m.name);
+  return`<div class="filterbar" role="group" aria-label="Whose itinerary">
+    <button type="button" class="chip-btn every" aria-pressed="${!on}" data-act="allon">Everyone</button>
+    ${ms.map(m=>`<button type="button" class="chip-btn" style="--mc:${mcol(m.id)}" aria-pressed="${on&&sel.includes(m.id)}" data-act="person" data-who="${m.id}"><span class="av">${initial(m.name)}</span>${esc(m.name)}</button>`).join('')}
+  </div>${on
+    ?`<div class="filternote"><span><b>${esc(listJoin(names))}’s itinerary</b>, including plans with others.</span><button type="button" class="linkbtn" data-act="allon">Show everyone</button></div>`
+    :`<div class="filternote small muted">Tap a name to see just that person’s itinerary.</div>`}`;
 }
 
 // ---------- parks and hotels shown for the families in scope ----------
@@ -501,7 +504,7 @@ function daysView(){
       ${dayFields}</div>
       ${!f&&multiFam()?'<div class="fine">Pick a family at the top to set its park and hotel for the day.</div>':''}
       <div class="list">${plans.map(planRow).join('')||`<div class="empty">${hidden?'Nothing for the people selected on this day.':'Nothing planned for this day yet.'}</div>`}</div>
-      ${hidden&&plans.length?`<div class="fine">${plural(hidden,'plan')} hidden by the people filter.</div>`:''}
+      ${hidden?`<div class="fine">${plural(hidden,'other plan')} on this day. <button type="button" class="linkbtn" data-act="allon">Show everyone</button></div>`:''}
       <details class="addbox" id="add-plan"${openAttr('add-plan',!all.length)}><summary class="btn">+ Add a plan</summary>
       <form class="form" data-form="plan">
         <label class="field"><span>Time</span><input type="time" id="pl-time" data-keep></label>
@@ -670,8 +673,8 @@ document.addEventListener('click',e=>{
   const {act:a,id,coll,who,day}=b.dataset;
   if((a==='del'||a==='pdel'||a==='famdel')&&!confirmTap(b,a+id))return;
   if(a==='scope'){scope=who;ls.set('trip-scope',scope);render()}
-  if(a==='person'){off=toggleIn(off,who);ls.set('trip-off',off);render()}
-  if(a==='allon'){const ids=scopeMembers().map(m=>m.id);off=off.filter(x=>!ids.includes(x));ls.set('trip-off',off);render()}
+  if(a==='person'){pick=toggleIn(filtering()?selected():[],who);ls.set('trip-pick',pick);render()}
+  if(a==='allon'){pick=[];ls.set('trip-pick',pick);render()}
   if(a==='selday'){selDay=day;ls.set('trip-selday',day);render()}
   if(a==='goday'){selDay=day;ls.set('trip-selday',day);location.hash='days'}
   if(a==='del'){const it=S[coll].find(x=>x.id===id);act(store.remove(coll,id),it?`Deleted “${it.title||it.text}”`:null)}
