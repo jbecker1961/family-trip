@@ -1,6 +1,6 @@
 // Keeps the app itself available with a weak signal in the parks.
 // Trip data has its own offline copy (Firestore's local cache), so this only caches the page files.
-const CACHE = 'family-trip-v5';
+const CACHE = 'family-trip-v6';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'firebase-config.js', 'manifest.webmanifest', 'icon-192.png'];
 
 self.addEventListener('install', e => {
@@ -17,7 +17,8 @@ self.addEventListener('fetch', e => {
   const staticCdn = url.hostname === 'www.gstatic.com' || url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
   if (sameOrigin) {
     // Network first so updates show up right away; fall back to the cached copy offline.
-    e.respondWith(fetch(req).then(res => {
+    // cache:'no-cache' makes the browser check with GitHub every time instead of using its 10-minute copy.
+    e.respondWith(fetch(req, { cache: 'no-cache' }).then(res => {
       if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(url.pathname.endsWith('/') ? './' : req, copy)); }
       return res;
     }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('./'))));

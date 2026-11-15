@@ -3,6 +3,8 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, onSnapshot, setDoc, updateDoc, deleteDoc, addDoc, FieldPath } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
+const APP_VERSION='2026.11.15-3';   // shown at the bottom of Home so you can tell which version a phone has
+
 // ---------- helpers ----------
 const $=(s,r=document)=>r.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -476,6 +478,7 @@ function overviewView(){
       <p class="small muted" style="margin:0">Send the link and give the password a different way, like saying it out loud. Each family picks its name at the top once on each phone.</p>
       <div class="sharebox"><input type="text" id="share-url" readonly value="${esc(shareUrl())}" aria-label="Trip link"><button class="btn small" data-act="copylink">Copy link</button>${navigator.share?'<button class="btn ghost small" data-act="sharelink">Share…</button>':''}</div>
       <div><button class="btn ghost small" data-act="signout">Sign out of this trip on this device</button></div>
+      <div class="fine">App version ${APP_VERSION}</div>
     </section>`;
   return`${scopeBar()}<div class="grid">${s==='group'&&multiFam()?famsPanel+glance:glance+famsPanel}${upnext}${wins}${details}${share}</div>`;
 }
