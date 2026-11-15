@@ -54,7 +54,9 @@ const initial=n=>esc((n||'?').trim().charAt(0).toUpperCase()||'?');
 function families(){
   const t=S.trip;if(!t)return[];
   if(Array.isArray(t.families)&&t.families.length)return t.families;
-  return[{id:'fam1',name:'Our family',hotel:t.hotel||'',arrive:t.start||'',depart:t.end||t.start||'',onsite:!!t.onsite}];
+  // "Becker Family 2027" -> "Becker Family"
+  const nm=String(t.name||'').replace(/\s*\b(19|20)\d\d\b\s*/g,' ').replace(/\s+(trip|vacation)$/i,'').trim();
+  return[{id:'fam1',name:/family/i.test(nm)?nm:'Our family',hotel:t.hotel||'',arrive:t.start||'',depart:t.end||t.start||'',onsite:!!t.onsite}];
 }
 const fam=id=>families().find(f=>f.id===id);
 const firstFam=()=>families()[0]?.id;
